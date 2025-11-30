@@ -245,15 +245,14 @@ MathJax = {
     // ========================================
 
     const EDGE_PATTERNS = [
-        ['top', 'right'],     // Cycles 0-1
-        ['bottom', 'right'],  // Cycles 2-3
-        ['top', 'left'],      // Cycles 4-5
-        ['bottom', 'left']    // Cycles 6-7
+        ['left', 'top'],      // Cycle 0
+        ['left', 'bottom'],   // Cycle 1
+        ['right', 'top'],     // Cycle 2
+        ['right', 'bottom']   // Cycle 3
     ];
 
     function getActiveEdges(cycleIndex) {
-        const pattern = Math.floor(cycleIndex / 2) % 4;
-        return EDGE_PATTERNS[pattern];
+        return EDGE_PATTERNS[cycleIndex % 4];
     }
 
     // ========================================
@@ -500,7 +499,7 @@ MathJax = {
             ctx.setLineDash([]);
         },
 
-        drawSineWaves(history, edges, cycleIndex, currentT, alpha = 1) {
+        drawSineWaves(history, edges, cycleIndex, currentT, fadeAlpha = 1) {
             if (history.length < 2) return;
 
             const { center, scale } = dimensions;
@@ -511,7 +510,8 @@ MathJax = {
 
             ctx.strokeStyle = cycle.color;
             ctx.lineWidth = CONFIG.visual.circleLineWidth;
-            ctx.globalAlpha = alpha;
+            // Match the circle's alpha, multiplied by fade alpha for fading waves
+            ctx.globalAlpha = CONFIG.visual.sweepLineAlpha * fadeAlpha;
 
             edges.forEach(edge => {
                 ctx.beginPath();
