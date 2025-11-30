@@ -67,13 +67,15 @@ MathJax = {
             projection: 12          // in pixels
         },
 
-        // Timing
+        // Timing (all durations in milliseconds)
         timing: {
-            sweepSpeed: 0.0032175,
-            startPauseFrames: 30,
-            completionPauseFrames: 30,
+            cycleDuration: 5180,          // ms for one full sweep
+            startPauseDuration: 500,      // ms pause before sweep starts
+            completionPauseDuration: 500, // ms pause after sweep completes
             earlyTriggerOffset: 0.005,
-            finalNoteProgress: 0.97
+            finalNoteProgress: 0.97,
+            popDuration: 500,             // ms for pop animation
+            sineWaveFadeDuration: 1000    // ms for sine wave fade out
         },
 
         // Audio
@@ -102,7 +104,6 @@ MathJax = {
 
         // Visual
         visual: {
-            popMaxAge: 30,
             popStartSize: 5,
             popEndSize: 30,
             circleLineWidth: 3,
@@ -127,9 +128,7 @@ MathJax = {
             lineWidth: 1
         },
         sineWave: {
-            spreadSpeed: 0.6,         // How fast the wave spreads outward (pixels per frame at base size)
             maxSpread: 190,           // Maximum distance from edge (pixels at base size) - full wave visible
-            fadeFrames: 60,           // Frames to fade out after cycle ends
             color: '#9ca3af',
             lineWidth: 1.5
         },
@@ -235,18 +234,18 @@ MathJax = {
         sweepProgress: 0,
         parameterT: -Math.PI,
         cycleIndex: 0,
-        startPauseCounter: CONFIG.timing.startPauseFrames,
-        completionPauseCounter: 0,
+        phase: 'startPause',        // 'startPause' | 'sweep' | 'completionPause'
+        phaseStartTime: performance.now(),
         fifthsIndex: 0,
         noteIndex: 0,
         lastProgressQuarter: -1,
         finalNotePlayed: false,
         padStarted: false,
-        pops: [],
+        pops: [],                   // Array of {x, y, createdAt, color}
         lastLabelCycleIndex: -1,
         // Sine wave emanation state
         sineWaveHistory: [],        // Array of {x, y} points for current cycle
-        fadingSineWaves: []         // Array of {points: [], color: '', age: 0, edges: []} for fading waves
+        fadingSineWaves: []         // Array of {points: [], color: '', createdAt, edges: [], cycleIndex}
     };
 
     // ========================================
@@ -473,11 +472,47 @@ MathJax = {
             if (!this.enabled) {
                 if (!this.context) this.init();
                 this.enabled = true;
+                // Sync music state to current progress so bells play at correct times
+                this.syncToCurrentProgress();
             } else {
                 this.enabled = false;
                 this.killAll();
             }
             return this.enabled;
+        },
+
+        syncToCurrentProgress() {
+            // Calculate current progress from elapsed time
+            let currentProgress = 0;
+            if (state.phase === 'sweep') {
+                const elapsed = performance.now() - state.phaseStartTime;
+                currentProgress = Math.min(elapsed / CONFIG.timing.cycleDuration, 1);
+            } else if (state.phase === 'completionPause') {
+                currentProgress = 1;
+            }
+
+            // Calculate which quarter we're in based on current sweep progress
+            const adjustedProgress = currentProgress + CONFIG.timing.earlyTriggerOffset;
+            const currentQuarter = Math.floor(adjustedProgress * 4);
+
+            // Set lastProgressQuarter so we don't replay notes that should have already played
+            state.lastProgressQuarter = currentQuarter;
+
+            // Calculate how many notes should have played (quarters 1, 2, 3 = notes 0, 1, 2)
+            state.noteIndex = Math.max(0, Math.min(currentQuarter, 3));
+
+            // Check if final note should have played
+            state.finalNotePlayed = currentProgress >= CONFIG.timing.finalNoteProgress;
+
+            // Start pad if we're in an ascending cycle and haven't completed it
+            const cycle = FUNCTION_CYCLES[state.cycleIndex];
+            if (cycle.ascending && currentProgress < 1 && state.phase === 'sweep') {
+                const key = musicTheory.getCurrentKey(state.fifthsIndex);
+                this.startPad(musicTheory.keyFrequencies[key][0]);
+                state.padStarted = true;
+            } else {
+                state.padStarted = cycle.ascending; // Mark as already started/done if ascending
+            }
         }
     };
 
@@ -528,13 +563,12 @@ MathJax = {
             ctx.setLineDash([]);
         },
 
-        drawSineWaves(history, edges, cycleIndex, currentT, fadeAlpha = 1) {
+        drawSineWaves(history, edges, cycleIndex, currentProgress, fadeAlpha = 1) {
             if (history.length < 2) return;
 
             const { center, scale } = dimensions;
             const scaleFactor = dimensions.getScaleFactor();
             const maxSpread = CONFIG.sineWave.maxSpread * scaleFactor;
-            const spreadSpeed = CONFIG.sineWave.spreadSpeed * scaleFactor;
             const cycle = FUNCTION_CYCLES[cycleIndex];
 
             ctx.strokeStyle = cycle.color;
@@ -547,8 +581,9 @@ MathJax = {
                 let first = true;
 
                 history.forEach((point, i) => {
-                    const age = history.length - 1 - i;
-                    const spread = Math.min(age * spreadSpeed, maxSpread);
+                    // Spread based on progress difference, not frame count
+                    const progressDiff = currentProgress - point.progress;
+                    const spread = Math.min(progressDiff * maxSpread, maxSpread);
 
                     let drawX, drawY;
                     if (edge === 'top') {
@@ -582,21 +617,15 @@ MathJax = {
                     : cycle.yCrossings;
 
                 crossingTs.forEach(crossingT => {
-                    // Only draw if we've passed this t value
-                    if (crossingT < -Math.PI || crossingT > currentT) return;
-
                     // Calculate what fraction through the sweep this crossing occurs
                     const crossingProgress = (crossingT + Math.PI) / (2 * Math.PI);
-                    // Calculate what fraction through the sweep we currently are
-                    const currentProgress = (currentT + Math.PI) / (2 * Math.PI);
 
-                    // The crossing was recorded when progress matched crossingProgress
-                    // History index = crossingProgress / currentProgress * history.length
-                    const historyIndex = Math.floor((crossingProgress / currentProgress) * (history.length - 1));
-                    if (historyIndex < 0 || historyIndex >= history.length) return;
+                    // Only draw if we've passed this crossing point
+                    if (crossingProgress > currentProgress) return;
 
-                    const age = history.length - 1 - historyIndex;
-                    const spread = Math.min(age * spreadSpeed, maxSpread);
+                    // Spread based on progress difference
+                    const progressDiff = currentProgress - crossingProgress;
+                    const spread = Math.min(progressDiff * maxSpread, maxSpread);
 
                     // Get exact position from function
                     const exactX = center + cycle.xFunc(crossingT) * scale;
@@ -790,19 +819,20 @@ MathJax = {
         },
 
         drawPops(pops) {
-            const { visual } = CONFIG;
+            const { visual, timing } = CONFIG;
+            const now = performance.now();
 
             // Mutate in place for performance (avoid allocations every frame)
             for (let i = pops.length - 1; i >= 0; i--) {
                 const pop = pops[i];
-                pop.age++;
+                const age = now - pop.createdAt;
 
-                if (pop.age > visual.popMaxAge) {
+                if (age > timing.popDuration) {
                     pops.splice(i, 1);
                     continue;
                 }
 
-                const progress = pop.age / visual.popMaxAge;
+                const progress = age / timing.popDuration;
                 const size = visual.popStartSize + (visual.popEndSize - visual.popStartSize) * progress;
 
                 ctx.globalAlpha = 1 - progress;
@@ -815,7 +845,7 @@ MathJax = {
             ctx.globalAlpha = 1;
         },
 
-        render(cycleIndex, parameterT, pops, sineWaveHistory, fadingSineWaves) {
+        render(cycleIndex, parameterT, sweepProgress, pops, sineWaveHistory, fadingSineWaves) {
             const cycle = FUNCTION_CYCLES[cycleIndex];
             const edges = getActiveEdges(cycleIndex);
             const { center, scale } = dimensions;
@@ -831,16 +861,18 @@ MathJax = {
             this.drawAxes();
 
             // Draw fading sine waves from previous cycles
+            const now = performance.now();
             fadingSineWaves.forEach(wave => {
-                const alpha = 1 - (wave.age / CONFIG.sineWave.fadeFrames);
+                const age = now - wave.createdAt;
+                const alpha = 1 - (age / CONFIG.timing.sineWaveFadeDuration);
                 if (alpha > 0) {
-                    // For fading waves, use Math.PI as currentT since they completed
-                    this.drawSineWaves(wave.points, wave.edges, wave.cycleIndex, Math.PI, alpha);
+                    // For fading waves, use 1.0 as progress since they completed
+                    this.drawSineWaves(wave.points, wave.edges, wave.cycleIndex, 1.0, alpha);
                 }
             });
 
             // Draw current sine waves
-            this.drawSineWaves(sineWaveHistory, edges, cycleIndex, parameterT);
+            this.drawSineWaves(sineWaveHistory, edges, cycleIndex, sweepProgress);
 
             // Draw edge projections
             this.drawEdgeProjections(x, y, edges);
@@ -928,7 +960,7 @@ MathJax = {
             return {
                 x: center + xVal * scale,
                 y: center - yVal * scale,
-                age: 0,
+                createdAt: performance.now(),
                 color: cycle.color
             };
         },
@@ -975,18 +1007,19 @@ MathJax = {
                     color: cycle.color,
                     edges: getActiveEdges(state.cycleIndex),
                     cycleIndex: state.cycleIndex,  // Need this for crossing calculation
-                    age: 0
+                    createdAt: performance.now()
                 });
             }
             state.sineWaveHistory = [];
 
             state.sweepProgress = 0;
-            state.startPauseCounter = CONFIG.timing.startPauseFrames;
             state.parameterT = -Math.PI;
             state.lastProgressQuarter = -1;
             state.noteIndex = 0;
             state.finalNotePlayed = false;
             state.padStarted = false;
+            state.phase = 'startPause';
+            state.phaseStartTime = performance.now();
 
             state.cycleIndex = (state.cycleIndex + 1) % FUNCTION_CYCLES.length;
 
@@ -996,39 +1029,45 @@ MathJax = {
         },
 
         tick() {
+            const now = performance.now();
+            const elapsed = now - state.phaseStartTime;
+
             // Handle start pause
-            if (state.startPauseCounter > 0) {
-                state.startPauseCounter--;
+            if (state.phase === 'startPause') {
+                if (elapsed >= CONFIG.timing.startPauseDuration) {
+                    state.phase = 'sweep';
+                    state.phaseStartTime = now;
+                }
                 return;
             }
 
             // Handle completion pause
-            if (state.completionPauseCounter > 0) {
-                state.completionPauseCounter--;
-                if (state.completionPauseCounter === 0) {
+            if (state.phase === 'completionPause') {
+                if (elapsed >= CONFIG.timing.completionPauseDuration) {
                     this.resetForNextCycle();
                 }
                 return;
             }
 
-            // Start pad chord at beginning of ascending cycles
+            // Sweep phase - calculate progress from elapsed time
             const cycle = FUNCTION_CYCLES[state.cycleIndex];
+
+            // Start pad chord at beginning of ascending cycles
             if (cycle.ascending && !state.padStarted && audio.enabled) {
                 const key = musicTheory.getCurrentKey(state.fifthsIndex);
                 audio.startPad(musicTheory.keyFrequencies[key][0]);
                 state.padStarted = true;
             }
 
-            // Update sweep
-            state.sweepProgress += CONFIG.timing.sweepSpeed;
+            // Calculate sweep progress from elapsed time
+            state.sweepProgress = Math.min(elapsed / CONFIG.timing.cycleDuration, 1);
+            state.parameterT = -Math.PI + state.sweepProgress * 2 * Math.PI;
+
             this.checkAndPlayNotes();
 
             if (state.sweepProgress >= 1) {
-                state.sweepProgress = 1;
-                state.parameterT = Math.PI;
-                state.completionPauseCounter = CONFIG.timing.completionPauseFrames;
-            } else {
-                state.parameterT = -Math.PI + state.sweepProgress * 2 * Math.PI;
+                state.phase = 'completionPause';
+                state.phaseStartTime = now;
             }
 
             // Record current point position for sine wave history
@@ -1037,17 +1076,19 @@ MathJax = {
             const yVal = cycle.yFunc(state.parameterT);
             state.sineWaveHistory.push({
                 x: center + xVal * scale,
-                y: center - yVal * scale
+                y: center - yVal * scale,
+                progress: state.sweepProgress
             });
         },
 
         animate() {
             this.tick();
 
-            // Age fading sine waves and remove expired ones
+            // Remove expired fading sine waves
+            const now = performance.now();
             for (let i = state.fadingSineWaves.length - 1; i >= 0; i--) {
-                state.fadingSineWaves[i].age++;
-                if (state.fadingSineWaves[i].age >= CONFIG.sineWave.fadeFrames) {
+                const age = now - state.fadingSineWaves[i].createdAt;
+                if (age >= CONFIG.timing.sineWaveFadeDuration) {
                     state.fadingSineWaves.splice(i, 1);
                 }
             }
@@ -1055,6 +1096,7 @@ MathJax = {
             renderer.render(
                 state.cycleIndex,
                 state.parameterT,
+                state.sweepProgress,
                 state.pops,
                 state.sineWaveHistory,
                 state.fadingSineWaves
