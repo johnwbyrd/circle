@@ -14,15 +14,8 @@
         pointRadius: 6,             // Current point radius
         arcStep: 0.02,              // Arc drawing resolution
 
-        // Tick label offsets (at base size)
-        tickOffsets: {
-            xPosLeft: 15,
-            xNegLeft: 30,
-            xTop: 18,
-            yLeft: 10,
-            yPosTop: 28,
-            yNegTop: 8
-        },
+        // Gap between tick labels and square edge (at base size)
+        tickLabelGap: 8,
 
         // Projection label offsets (at base size)
         projectionOffsets: {
@@ -867,23 +860,31 @@
         updateTickPositions() {
             const { center, scale } = dimensions;
             const scaleFactor = dimensions.getScaleFactor();
-            const offsets = CONFIG.tickOffsets;
+            const gap = CONFIG.tickLabelGap * scaleFactor;
 
-            elements.tickXPos.style.left = (center + scale + offsets.xPosLeft * scaleFactor) + 'px';
-            elements.tickXPos.style.top = (center - offsets.xTop * scaleFactor) + 'px';
-            elements.tickXPos.style.transform = 'translateY(-50%)';
+            // Right "1" - inside box, right-aligned against the right edge
+            elements.tickXPos.style.left = (center + scale - gap) + 'px';
+            elements.tickXPos.style.top = center + 'px';
+            elements.tickXPos.style.transform = 'translate(-100%, -50%)';
+            elements.tickXPos.style.textAlign = 'right';
 
-            elements.tickXNeg.style.left = (center - scale - offsets.xNegLeft * scaleFactor) + 'px';
-            elements.tickXNeg.style.top = (center - offsets.xTop * scaleFactor) + 'px';
+            // Left "-1" - inside box, left-aligned against the left edge
+            elements.tickXNeg.style.left = (center - scale + gap) + 'px';
+            elements.tickXNeg.style.top = center + 'px';
             elements.tickXNeg.style.transform = 'translateY(-50%)';
+            elements.tickXNeg.style.textAlign = 'left';
 
-            elements.tickYPos.style.left = (center - offsets.yLeft * scaleFactor) + 'px';
-            elements.tickYPos.style.top = (center - scale - offsets.yPosTop * scaleFactor) + 'px';
-            elements.tickYPos.style.transform = 'translateX(-100%)';
+            // Top "1" - inside box, positioned just below the top edge
+            elements.tickYPos.style.left = center + 'px';
+            elements.tickYPos.style.top = (center - scale + gap) + 'px';
+            elements.tickYPos.style.transform = 'translateX(-50%)';
+            elements.tickYPos.style.textAlign = 'center';
 
-            elements.tickYNeg.style.left = (center - offsets.yLeft * scaleFactor) + 'px';
-            elements.tickYNeg.style.top = (center + scale + offsets.yNegTop * scaleFactor) + 'px';
-            elements.tickYNeg.style.transform = 'translateX(-100%)';
+            // Bottom "-1" - inside box, positioned just above the bottom edge
+            elements.tickYNeg.style.left = center + 'px';
+            elements.tickYNeg.style.top = (center + scale - gap) + 'px';
+            elements.tickYNeg.style.transform = 'translate(-50%, -100%)';
+            elements.tickYNeg.style.textAlign = 'center';
         },
 
         updateFontSizes() {
