@@ -244,7 +244,7 @@ MathJax = {
         pops: [],                   // Array of {x, y, createdAt, color}
         lastLabelCycleIndex: -1,
         // Sine wave emanation state
-        sineWaveHistory: [],        // Array of {x, y} points for current cycle
+        sineWaveHistory: [],        // Array of {xVal, yVal, progress} points for current cycle
         fadingSineWaves: []         // Array of {points: [], color: '', createdAt, edges: [], cycleIndex}
     };
 
@@ -581,23 +581,27 @@ MathJax = {
                 let first = true;
 
                 history.forEach((point, i) => {
+                    // Convert logical coordinates to screen coordinates
+                    const screenX = center + point.xVal * scale;
+                    const screenY = center - point.yVal * scale;
+
                     // Spread based on progress difference, not frame count
                     const progressDiff = currentProgress - point.progress;
                     const spread = Math.min(progressDiff * maxSpread, maxSpread);
 
                     let drawX, drawY;
                     if (edge === 'top') {
-                        drawX = point.x;
+                        drawX = screenX;
                         drawY = (center - scale) - spread;
                     } else if (edge === 'bottom') {
-                        drawX = point.x;
+                        drawX = screenX;
                         drawY = (center + scale) + spread;
                     } else if (edge === 'left') {
                         drawX = (center - scale) - spread;
-                        drawY = point.y;
+                        drawY = screenY;
                     } else if (edge === 'right') {
                         drawX = (center + scale) + spread;
-                        drawY = point.y;
+                        drawY = screenY;
                     }
 
                     if (first) {
@@ -1070,13 +1074,12 @@ MathJax = {
                 state.phaseStartTime = now;
             }
 
-            // Record current point position for sine wave history
-            const { center, scale } = dimensions;
+            // Record current point position for sine wave history (in logical coordinates)
             const xVal = cycle.xFunc(state.parameterT);
             const yVal = cycle.yFunc(state.parameterT);
             state.sineWaveHistory.push({
-                x: center + xVal * scale,
-                y: center - yVal * scale,
+                xVal: xVal,
+                yVal: yVal,
                 progress: state.sweepProgress
             });
         },
