@@ -28,61 +28,112 @@ MathJax = {
 <script>
 (function() {
     'use strict';
-    
+
     // ========================================
-    // CONSTANTS AND CONFIGURATION
+    // CONFIGURATION
     // ========================================
 
-    // Dynamic sizing - will be updated on resize
-    let CANVAS_SIZE = 600;
-    let SCALE = 180; // pixels per unit (0.3 of canvas size)
-    let CENTER = CANVAS_SIZE / 2;
+    const CONFIG = {
+        // Layout
+        baseSize: 600,              // Reference size for scaling
+        scaleRatio: 0.3,            // Scale as fraction of canvas size
+        axisMargin: 50,             // Margin from edge to axis endpoints
+        tickLength: 5,              // Half-length of tick marks
+        pointRadius: 6,             // Current point radius
+        arcStep: 0.02,              // Arc drawing resolution
 
-    const SCALE_RATIO = 0.3; // Scale as fraction of canvas size
-    
-    const TIMING = {
-        sweepSpeed: 0.0032175,      // Progress per frame (~5 seconds)
-        startPauseFrames: 30,        // Pause before sweep starts
-        completionPauseFrames: 30,   // Pause after sweep completes
-        earlyTriggerOffset: 0.005,    // Trigger notes 0.5% early (~25ms)
-        finalNoteProgress: 0.97      // When to play final note
-    };
-    
-    const AUDIO = {
-        scheduleAheadTime: 0.1,      // Schedule audio 100ms early
-        reverbDuration: 6,           // Reverb tail in seconds
-        wetDryMix: { dry: 0.3, wet: 0.7 },
-        masterGain: 0.25,
-        bellDuration: 1.5,
-        harmonics: [
-            { freq: 1.0, gain: 0.5 },
-            { freq: 2.76, gain: 0.3 },
-            { freq: 5.4, gain: 0.15 },
-            { freq: 8.93, gain: 0.08 }
-        ],
-        // Pad chord settings
-        pad: {
-            octavesDown: 2,          // How many octaves below the bell tones
-            gain: 0.08,              // Quieter than bells
-            swellTime: 1.2,          // Seconds to fade in
-            fadeTime: 4.0,           // Seconds to fade out (during descending arp)
-            // Slight detuning for richness (cents)
-            detune: [0, -4, 0, 3]
+        // Tick label offsets (at base size)
+        tickOffsets: {
+            xPosLeft: 15,
+            xNegLeft: 30,
+            xTop: 18,
+            yLeft: 10,
+            yPosTop: 28,
+            yNegTop: 8
+        },
+
+        // Projection label offsets (at base size)
+        projectionOffsets: {
+            labelAbove: 8,
+            labelBelow: 15,
+            labelSide: 18
+        },
+
+        // Font sizes (at base size, in rem)
+        fonts: {
+            tick: 1.35,
+            axisLabel: 1.65,
+            projection: 20           // in pixels
+        },
+
+        // Timing
+        timing: {
+            sweepSpeed: 0.0032175,
+            startPauseFrames: 30,
+            completionPauseFrames: 30,
+            earlyTriggerOffset: 0.005,
+            finalNoteProgress: 0.97
+        },
+
+        // Audio
+        audio: {
+            scheduleAheadTime: 0.1,
+            reverbDuration: 6,
+            reverbDecay: 1.5,
+            wetDryMix: { dry: 0.3, wet: 0.7 },
+            masterGain: 0.25,
+            bellDuration: 1.5,
+            harmonics: [
+                { freq: 1.0, gain: 0.5 },
+                { freq: 2.76, gain: 0.3 },
+                { freq: 5.4, gain: 0.15 },
+                { freq: 8.93, gain: 0.08 }
+            ],
+            pad: {
+                octavesDown: 2,
+                gain: 0.08,
+                swellTime: 1.2,
+                fadeTime: 4.0,
+                detune: [0, -4, 0, 3],
+                layerDetune: 2
+            }
+        },
+
+        // Visual
+        visual: {
+            popMaxAge: 30,
+            popStartSize: 5,
+            popEndSize: 30,
+            circleLineWidth: 3,
+            sweepLineAlpha: 0.3,
+            ghostCircleAlpha: 0.1,
+            radiusLineAlpha: 0.6,
+            projectionAlpha: 0.4,
+            projectionLabelAlpha: 0.6,
+            axisColor: '#d1d5db',
+            backgroundColor: '#ffffff'
+        },
+
+        // Colors
+        colors: {
+            buttonActive: '#059669',
+            buttonInactive: '#2563eb'
+        },
+
+        // Music theory
+        music: {
+            c6Frequency: 1046.50,
+            semitoneRatio: Math.pow(2, 1/12),
+            arpeggioIntervals: [0, 4, 7, 12],
+            notes: ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'],
+            noteToSemitone: { 'C': 0, 'C#': 1, 'D': 2, 'Eb': 3, 'E': 4, 'F': 5, 'F#': 6, 'G': 7, 'Ab': 8, 'A': 9, 'Bb': 10, 'B': 11 }
         }
     };
-    
-    const VISUAL = {
-        popMaxAge: 30,               // Frames for pop animation
-        popStartSize: 5,             // Starting radius in pixels
-        popEndSize: 30,              // Ending radius in pixels
-        circleLineWidth: 3,
-        sweepLineAlpha: 0.3,
-        ghostCircleAlpha: 0.1,
-        radiusLineAlpha: 0.6
-    };
-    
-    // Function definitions for the 8 cycles
-    // LaTeX names for MathJax rendering; xLabel/yLabel for axis labels
+
+    // ========================================
+    // FUNCTION CYCLES
+    // ========================================
+
     const FUNCTION_CYCLES = [
         { name: "$\\left[\\sin x,\\ \\frac{d}{dx}(\\sin x)\\right]$", xLabel: "$\\sin x$", yLabel: "$\\frac{d}{dx}(\\sin x)$", xFunc: Math.sin, yFunc: Math.cos, color: '#dc2626', ascending: true },
         { name: "$\\left[\\sin x,\\ \\int \\sin x\\, dx\\right]$", xLabel: "$\\sin x$", yLabel: "$\\int \\sin x\\, dx$", xFunc: Math.sin, yFunc: t => -Math.cos(t), color: '#ea580c', ascending: false },
@@ -93,82 +144,125 @@ MathJax = {
         { name: "$\\left[-\\cos x,\\ \\frac{d}{dx}(-\\cos x)\\right]$", xLabel: "$-\\cos x$", yLabel: "$\\frac{d}{dx}(-\\cos x)$", xFunc: t => -Math.cos(t), yFunc: Math.sin, color: '#7c3aed', ascending: true },
         { name: "$\\left[-\\cos x,\\ \\int -\\cos x\\, dx\\right]$", xLabel: "$-\\cos x$", yLabel: "$\\int -\\cos x\\, dx$", xFunc: t => -Math.cos(t), yFunc: t => -Math.sin(t), color: '#000000', ascending: false }
     ];
-    
+
     // ========================================
-    // MUSICAL CALCULATIONS
+    // CACHED DOM ELEMENTS
     // ========================================
-    
-    function generateCircleOfFifths() {
-        const notes = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
-        const circle = [];
-        let currentIndex = 0; // Start at C
-        
-        for (let i = 0; i < 12; i++) {
-            circle.push(notes[currentIndex]);
-            currentIndex = (currentIndex + 7) % 12; // Perfect fifth is 7 semitones
-        }
-        
-        return circle;
-    }
-    
-    function generateKeyFrequencies(circleOfFifths) {
-        const C6_FREQUENCY = 1046.50; // C6 as base
-        const SEMITONE_RATIO = Math.pow(2, 1/12);
-        
-        const noteToSemitone = {
-            'C': 0, 'C#': 1, 'D': 2, 'Eb': 3, 'E': 4, 'F': 5,
-            'F#': 6, 'G': 7, 'Ab': 8, 'A': 9, 'Bb': 10, 'B': 11
-        };
-        
-        const frequencies = {};
-        
-        circleOfFifths.forEach(key => {
-            const rootSemitone = noteToSemitone[key];
-            
-            // Choose root note octave (using C6 as reference, adjust to reasonable range)
-            const rootFreq = C6_FREQUENCY * Math.pow(SEMITONE_RATIO, rootSemitone);
-            
-            // Build ascending arpeggio from root: 1, 3, 5, 8
-            // Intervals: root (+0), major 3rd (+4), perfect 5th (+7), octave (+12)
-            const intervals = [0, 4, 7, 12];
-            frequencies[key] = intervals.map(interval => 
-                rootFreq * Math.pow(SEMITONE_RATIO, interval)
-            );
-        });
-        
-        return frequencies;
-    }
-    
-    const CIRCLE_OF_FIFTHS = generateCircleOfFifths();
-    const KEY_FREQUENCIES = generateKeyFrequencies(CIRCLE_OF_FIFTHS);
-    
-    // ========================================
-    // STATE MANAGEMENT
-    // ========================================
-    
-    const state = {
-        // Animation state
-        sweepProgress: 0,           // 0 to 1
-        parameterT: -Math.PI,       // Current parameter value
-        cycleIndex: 0,              // Which function we're on (0-7)
-        startPauseCounter: TIMING.startPauseFrames,
-        completionPauseCounter: 0,
-        
-        // Musical state
-        fifthsIndex: 0,             // Position in circle of fifths
-        noteIndex: 0,               // Which note in arpeggio (0-3)
-        lastProgressQuarter: -1,    // Track which quarter we're in
-        finalNotePlayed: false,     // Flag for final note
-        padStarted: false,          // Flag for pad chord started this cycle
-        
-        // Visual state
-        visualPops: []              // Array of {x, y, age, color}
+
+    const elements = {
+        canvas: document.getElementById('parametricCircle'),
+        container: document.getElementById('canvasContainer'),
+        functionLabel: document.getElementById('functionLabel'),
+        xAxisLabel: document.getElementById('xAxisLabel'),
+        yAxisLabel: document.getElementById('yAxisLabel'),
+        tickXPos: document.getElementById('tickXPos'),
+        tickXNeg: document.getElementById('tickXNeg'),
+        tickYPos: document.getElementById('tickYPos'),
+        tickYNeg: document.getElementById('tickYNeg'),
+        audioButton: document.getElementById('audioButton'),
+        audioIcon: document.getElementById('audioIcon')
     };
-    
+
+    const ctx = elements.canvas.getContext('2d');
+
     // ========================================
-    // AUDIO SYSTEM
+    // DIMENSIONS (Single source of truth)
     // ========================================
-    
+
+    const dimensions = {
+        canvasSize: CONFIG.baseSize,
+        scale: CONFIG.baseSize * CONFIG.scaleRatio,
+        center: CONFIG.baseSize / 2,
+        dpr: window.devicePixelRatio || 1,
+
+        update() {
+            this.canvasSize = elements.container.clientWidth;
+            this.scale = this.canvasSize * CONFIG.scaleRatio;
+            this.center = this.canvasSize / 2;
+            this.dpr = window.devicePixelRatio || 1;
+
+            // Update canvas
+            elements.canvas.width = this.canvasSize * this.dpr;
+            elements.canvas.height = this.canvasSize * this.dpr;
+            elements.canvas.style.width = this.canvasSize + 'px';
+            elements.canvas.style.height = this.canvasSize + 'px';
+            ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+        },
+
+        getScaleFactor() {
+            return this.canvasSize / CONFIG.baseSize;
+        }
+    };
+
+    // ========================================
+    // STATE (Pure data, mutated only by controller)
+    // ========================================
+
+    const state = {
+        sweepProgress: 0,
+        parameterT: -Math.PI,
+        cycleIndex: 0,
+        startPauseCounter: CONFIG.timing.startPauseFrames,
+        completionPauseCounter: 0,
+        fifthsIndex: 0,
+        noteIndex: 0,
+        lastProgressQuarter: -1,
+        finalNotePlayed: false,
+        padStarted: false,
+        pops: [],
+        lastLabelCycleIndex: -1
+    };
+
+    // ========================================
+    // MUSIC THEORY (Pure functions)
+    // ========================================
+
+    const musicTheory = {
+        circleOfFifths: (function() {
+            const circle = [];
+            let index = 0;
+            for (let i = 0; i < 12; i++) {
+                circle.push(CONFIG.music.notes[index]);
+                index = (index + 7) % 12;
+            }
+            return circle;
+        })(),
+
+        keyFrequencies: null,
+
+        init() {
+            this.keyFrequencies = {};
+            this.circleOfFifths.forEach(key => {
+                const rootSemitone = CONFIG.music.noteToSemitone[key];
+                const rootFreq = CONFIG.music.c6Frequency * Math.pow(CONFIG.music.semitoneRatio, rootSemitone);
+                this.keyFrequencies[key] = CONFIG.music.arpeggioIntervals.map(interval =>
+                    rootFreq * Math.pow(CONFIG.music.semitoneRatio, interval)
+                );
+            });
+        },
+
+        getCurrentKey(fifthsIndex) {
+            return this.circleOfFifths[fifthsIndex % 12];
+        },
+
+        getArpeggioFrequency(key, noteIndex, ascending) {
+            const index = ascending ? noteIndex : (3 - noteIndex);
+            return this.keyFrequencies[key][index];
+        },
+
+        getAxisCrossingT(noteIndex) {
+            const targetProgress = (noteIndex + 1) * 0.25;
+            return -Math.PI + targetProgress * 2 * Math.PI;
+        }
+    };
+
+    // Initialize music theory
+    musicTheory.init();
+
+    // ========================================
+    // AUDIO MODULE
+    // ========================================
+
     const audio = {
         context: null,
         enabled: false,
@@ -176,117 +270,101 @@ MathJax = {
         convolver: null,
         dryGain: null,
         wetGain: null,
-        // Pad chord state
         padOscillators: [],
         padGains: [],
-        
-        initialize() {
+
+        init() {
             this.context = new (window.AudioContext || window.webkitAudioContext)();
-            
-            // Create audio graph
+
             this.masterGain = this.context.createGain();
-            this.masterGain.gain.value = AUDIO.masterGain;
-            
-            // Create reverb
+            this.masterGain.gain.value = CONFIG.audio.masterGain;
+
             this.convolver = this.createReverb();
-            
-            // Wet/dry mix
+
             this.dryGain = this.context.createGain();
             this.wetGain = this.context.createGain();
-            this.dryGain.gain.value = AUDIO.wetDryMix.dry;
-            this.wetGain.gain.value = AUDIO.wetDryMix.wet;
-            
-            // Connect graph: master -> [dry, wet(reverb)] -> destination
+            this.dryGain.gain.value = CONFIG.audio.wetDryMix.dry;
+            this.wetGain.gain.value = CONFIG.audio.wetDryMix.wet;
+
             this.masterGain.connect(this.dryGain);
             this.masterGain.connect(this.convolver);
             this.convolver.connect(this.wetGain);
             this.dryGain.connect(this.context.destination);
             this.wetGain.connect(this.context.destination);
         },
-        
+
         createReverb() {
             const convolver = this.context.createConvolver();
-            const duration = AUDIO.reverbDuration;
+            const duration = CONFIG.audio.reverbDuration;
             const sampleRate = this.context.sampleRate;
             const length = sampleRate * duration;
             const buffer = this.context.createBuffer(2, length, sampleRate);
-            
-            // Generate reverb impulse response
+
             for (let channel = 0; channel < 2; channel++) {
-                const channelData = buffer.getChannelData(channel);
+                const data = buffer.getChannelData(channel);
                 for (let i = 0; i < length; i++) {
-                    const decay = Math.pow(1 - i / length, 1.5);
-                    channelData[i] = (Math.random() * 2 - 1) * decay;
+                    const decay = Math.pow(1 - i / length, CONFIG.audio.reverbDecay);
+                    data[i] = (Math.random() * 2 - 1) * decay;
                 }
             }
-            
+
             convolver.buffer = buffer;
             return convolver;
         },
-        
-        playBellTone(frequency) {
+
+        playBell(frequency) {
             if (!this.enabled || !this.context) return;
 
             const now = this.context.currentTime;
-            const start = now + AUDIO.scheduleAheadTime;
-            const duration = AUDIO.bellDuration;
+            const start = now + CONFIG.audio.scheduleAheadTime;
+            const duration = CONFIG.audio.bellDuration;
 
-            AUDIO.harmonics.forEach(harmonic => {
+            CONFIG.audio.harmonics.forEach(harmonic => {
                 const osc = this.context.createOscillator();
                 const gain = this.context.createGain();
 
                 osc.frequency.value = frequency * harmonic.freq;
                 osc.type = 'sine';
-
                 gain.gain.setValueAtTime(harmonic.gain, start);
                 gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
 
                 osc.connect(gain);
                 gain.connect(this.masterGain);
-
                 osc.start(start);
                 osc.stop(start + duration);
             });
         },
 
-        startPadChord(rootFrequency) {
+        startPad(rootFrequency) {
             if (!this.enabled || !this.context) return;
 
             const now = this.context.currentTime;
-            const start = now + AUDIO.scheduleAheadTime;
+            const start = now + CONFIG.audio.scheduleAheadTime;
+            const pad = CONFIG.audio.pad;
 
-            // Calculate 1-3-5 frequencies (root, major 3rd, perfect 5th)
-            // Drop down octaves for warmth
-            const octaveMultiplier = Math.pow(0.5, AUDIO.pad.octavesDown);
+            const octaveMultiplier = Math.pow(0.5, pad.octavesDown);
             const baseFreq = rootFrequency * octaveMultiplier;
             const chordFreqs = [
-                { freq: baseFreq / 4, gainMult: 10.0 }, // Root 2 octaves down (sub bass)
-                { freq: baseFreq, gainMult: 1.0 },      // Root (1)
-                { freq: baseFreq * Math.pow(2, 4/12), gainMult: 1.0 },  // Major 3rd
-                { freq: baseFreq * Math.pow(2, 7/12), gainMult: 1.0 }   // Perfect 5th
+                { freq: baseFreq / 4, gainMult: 10.0 },
+                { freq: baseFreq, gainMult: 1.0 },
+                { freq: baseFreq * Math.pow(2, 4/12), gainMult: 1.0 },
+                { freq: baseFreq * Math.pow(2, 7/12), gainMult: 1.0 }
             ];
 
             chordFreqs.forEach((note, i) => {
-                // Create two oscillators per note for richness
                 for (let layer = 0; layer < 2; layer++) {
                     const osc = this.context.createOscillator();
                     const gain = this.context.createGain();
 
                     osc.type = 'sine';
                     osc.frequency.value = note.freq;
-                    // Apply slight detuning for warmth (use modulo for detune array)
-                    osc.detune.value = (AUDIO.pad.detune[i % AUDIO.pad.detune.length] || 0) + (layer === 0 ? -2 : 2);
+                    osc.detune.value = (pad.detune[i % pad.detune.length] || 0) + (layer === 0 ? -pad.layerDetune : pad.layerDetune);
 
-                    // Start silent and swell in, apply gain multiplier for bass notes
                     gain.gain.setValueAtTime(0.001, start);
-                    gain.gain.exponentialRampToValueAtTime(
-                        (AUDIO.pad.gain / 2) * note.gainMult,
-                        start + AUDIO.pad.swellTime
-                    );
+                    gain.gain.exponentialRampToValueAtTime((pad.gain / 2) * note.gainMult, start + pad.swellTime);
 
                     osc.connect(gain);
                     gain.connect(this.masterGain);
-
                     osc.start(start);
 
                     this.padOscillators.push(osc);
@@ -295,485 +373,439 @@ MathJax = {
             });
         },
 
-        stopPadChord() {
+        stopPad() {
             if (!this.context || this.padOscillators.length === 0) return;
 
             const now = this.context.currentTime;
+            const fadeTime = CONFIG.audio.pad.fadeTime;
 
-            // Capture current oscillators/gains to fade out
             const fadingOscs = this.padOscillators;
             const fadingGains = this.padGains;
-
-            // Clear arrays immediately so new chord can start fresh
             this.padOscillators = [];
             this.padGains = [];
 
-            // Fade out the captured oscillators
             fadingGains.forEach(gain => {
                 try {
                     gain.gain.cancelScheduledValues(now);
                     gain.gain.setValueAtTime(gain.gain.value, now);
-                    gain.gain.exponentialRampToValueAtTime(0.001, now + AUDIO.pad.fadeTime);
-                } catch (e) {
-                    // Ignore if already stopped
-                }
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + fadeTime);
+                } catch (e) { /* ignore */ }
             });
 
-            // Schedule oscillator stops after fade
             fadingOscs.forEach(osc => {
                 try {
-                    osc.stop(now + AUDIO.pad.fadeTime + 0.1);
-                } catch (e) {
-                    // Ignore if already stopped
-                }
+                    osc.stop(now + fadeTime + 0.1);
+                } catch (e) { /* ignore */ }
             });
+        },
+
+        toggle() {
+            if (!this.enabled) {
+                if (!this.context) this.init();
+                this.enabled = true;
+            } else {
+                this.enabled = false;
+            }
+            return this.enabled;
         }
     };
-    
-    // ========================================
-    // MUSICAL LOGIC
-    // ========================================
-    
-    const music = {
-        getCurrentKey() {
-            return CIRCLE_OF_FIFTHS[state.fifthsIndex % 12];
-        },
-        
-        getCurrentCycle() {
-            return FUNCTION_CYCLES[state.cycleIndex];
-        },
-        
-        getNoteFrequency() {
-            const key = this.getCurrentKey();
-            const frequencies = KEY_FREQUENCIES[key];
-            const cycle = this.getCurrentCycle();
-            
-            // Ascending: 1-3-5-8, Descending: 8-5-3-1
-            const index = cycle.ascending ? state.noteIndex : (3 - state.noteIndex);
-            return frequencies[index];
-        },
-        
-        getAxisCrossingPosition(noteIndex) {
-            // Calculate position at actual axis crossing (25%, 50%, 75%, 100%)
-            const targetProgress = (noteIndex + 1) * 0.25;
-            return -Math.PI + targetProgress * 2 * Math.PI;
-        },
-        
-        playNoteAtCrossing() {
-            const frequency = this.getNoteFrequency();
-            const cycle = this.getCurrentCycle();
-            audio.playBellTone(frequency);
 
-            // Stop pad chord on first note of descending arpeggio (8)
-            // For descending, noteIndex 0 plays the octave (8)
-            if (!cycle.ascending && state.noteIndex === 0) {
-                audio.stopPadChord();
-            }
-
-            // Create visual pop at axis crossing
-            const targetT = this.getAxisCrossingPosition(state.noteIndex);
-            const xVal = cycle.xFunc(targetT);
-            const yVal = cycle.yFunc(targetT);
-
-            state.visualPops.push({
-                x: CENTER + xVal * SCALE,
-                y: CENTER - yVal * SCALE,
-                age: 0,
-                color: cycle.color
-            });
-
-            state.noteIndex++;
-        },
-        
-        checkAndPlayNotes() {
-            if (!audio.enabled) return;
-            
-            // Check for notes at 25%, 50%, 75% (triggered slightly early)
-            const adjustedProgress = state.sweepProgress + TIMING.earlyTriggerOffset;
-            const currentQuarter = Math.floor(adjustedProgress * 4);
-            
-            if (currentQuarter !== state.lastProgressQuarter && currentQuarter >= 1 && currentQuarter <= 3) {
-                this.playNoteAtCrossing();
-                state.lastProgressQuarter = currentQuarter;
-            }
-            
-            // Final note at 97%
-            if (state.sweepProgress >= TIMING.finalNoteProgress && !state.finalNotePlayed) {
-                this.playNoteAtCrossing();
-                state.finalNotePlayed = true;
-            }
-        }
-    };
-    
     // ========================================
-    // RENDERING
+    // RENDERER (Pure - no state mutation)
     // ========================================
-    
-    const canvas = document.getElementById('parametricCircle');
-    const ctx = canvas.getContext('2d');
-    
+
     const renderer = {
+        clear() {
+            ctx.fillStyle = CONFIG.visual.backgroundColor;
+            ctx.fillRect(0, 0, dimensions.canvasSize, dimensions.canvasSize);
+        },
+
         drawAxes() {
-            ctx.strokeStyle = '#d1d5db';
+            const { center, canvasSize } = dimensions;
+            const margin = CONFIG.axisMargin * dimensions.getScaleFactor();
+
+            ctx.strokeStyle = CONFIG.visual.axisColor;
             ctx.lineWidth = 1;
-            
+
             // X axis
             ctx.beginPath();
-            ctx.moveTo(50, CENTER);
-            ctx.lineTo(CANVAS_SIZE - 50, CENTER);
+            ctx.moveTo(margin, center);
+            ctx.lineTo(canvasSize - margin, center);
             ctx.stroke();
-            
+
             // Y axis
             ctx.beginPath();
-            ctx.moveTo(CENTER, 50);
-            ctx.lineTo(CENTER, CANVAS_SIZE - 50);
+            ctx.moveTo(center, margin);
+            ctx.lineTo(center, canvasSize - margin);
             ctx.stroke();
-            
-            // Tick marks and labels
+
             this.drawTickMarks();
         },
-        
+
         drawTickMarks() {
-            ctx.strokeStyle = '#d1d5db';
+            const { center, scale } = dimensions;
+            const tickLen = CONFIG.tickLength;
+
+            ctx.strokeStyle = CONFIG.visual.axisColor;
             ctx.lineWidth = 1;
 
-            for (let i = -1; i <= 1; i++) {
-                if (i === 0) continue;
+            [-1, 1].forEach(i => {
+                const x = center + i * scale;
+                const y = center - i * scale;
 
-                const x = CENTER + i * SCALE;
-                const y = CENTER - i * SCALE;
-
-                // X axis tick marks only (labels are HTML overlays)
                 ctx.beginPath();
-                ctx.moveTo(x, CENTER - 5);
-                ctx.lineTo(x, CENTER + 5);
+                ctx.moveTo(x, center - tickLen);
+                ctx.lineTo(x, center + tickLen);
                 ctx.stroke();
 
-                // Y axis tick marks only (labels are HTML overlays)
                 ctx.beginPath();
-                ctx.moveTo(CENTER - 5, y);
-                ctx.lineTo(CENTER + 5, y);
+                ctx.moveTo(center - tickLen, y);
+                ctx.lineTo(center + tickLen, y);
                 ctx.stroke();
-            }
+            });
         },
-        
-        
+
         drawCircle(cycle, currentT) {
+            const { center, scale } = dimensions;
+
             ctx.strokeStyle = cycle.color;
-            ctx.lineWidth = VISUAL.circleLineWidth;
-            
+            ctx.lineWidth = CONFIG.visual.circleLineWidth;
+
             // Traced path
-            ctx.globalAlpha = VISUAL.sweepLineAlpha;
+            ctx.globalAlpha = CONFIG.visual.sweepLineAlpha;
             ctx.beginPath();
-            for (let angle = -Math.PI; angle <= currentT; angle += 0.02) {
-                const x = CENTER + cycle.xFunc(angle) * SCALE;
-                const y = CENTER - cycle.yFunc(angle) * SCALE;
-                if (angle === -Math.PI) ctx.moveTo(x, y);
+            let first = true;
+            for (let angle = -Math.PI; angle <= currentT; angle += CONFIG.arcStep) {
+                const x = center + cycle.xFunc(angle) * scale;
+                const y = center - cycle.yFunc(angle) * scale;
+                if (first) { ctx.moveTo(x, y); first = false; }
                 else ctx.lineTo(x, y);
             }
             ctx.stroke();
-            
+
             // Ghost circle
-            ctx.globalAlpha = VISUAL.ghostCircleAlpha;
+            ctx.globalAlpha = CONFIG.visual.ghostCircleAlpha;
             ctx.beginPath();
-            for (let angle = -Math.PI; angle <= Math.PI; angle += 0.02) {
-                const x = CENTER + cycle.xFunc(angle) * SCALE;
-                const y = CENTER - cycle.yFunc(angle) * SCALE;
-                if (angle === -Math.PI) ctx.moveTo(x, y);
+            first = true;
+            for (let angle = -Math.PI; angle <= Math.PI; angle += CONFIG.arcStep) {
+                const x = center + cycle.xFunc(angle) * scale;
+                const y = center - cycle.yFunc(angle) * scale;
+                if (first) { ctx.moveTo(x, y); first = false; }
                 else ctx.lineTo(x, y);
             }
             ctx.stroke();
             ctx.globalAlpha = 1;
         },
-        
+
         drawCurrentPoint(cycle, t) {
+            const { center, scale } = dimensions;
+            const scaleFactor = dimensions.getScaleFactor();
+
             const xVal = cycle.xFunc(t);
             const yVal = cycle.yFunc(t);
-            const x = CENTER + xVal * SCALE;
-            const y = CENTER - yVal * SCALE;
-            
+            const x = center + xVal * scale;
+            const y = center - yVal * scale;
+
             // Projection lines
             ctx.strokeStyle = cycle.color;
             ctx.lineWidth = 1;
-            ctx.globalAlpha = 0.4;
+            ctx.globalAlpha = CONFIG.visual.projectionAlpha;
             ctx.setLineDash([5, 5]);
-            
+
             ctx.beginPath();
-            ctx.moveTo(CENTER, y);
+            ctx.moveTo(center, y);
             ctx.lineTo(x, y);
             ctx.stroke();
-            
+
             ctx.beginPath();
-            ctx.moveTo(x, CENTER);
+            ctx.moveTo(x, center);
             ctx.lineTo(x, y);
             ctx.stroke();
-            
+
             ctx.setLineDash([]);
             ctx.globalAlpha = 1;
-            
+
             // Projection labels
-            this.drawProjectionLabels(x, y, xVal, yVal, cycle.color);
-            
+            this.drawProjectionLabels(x, y, xVal, yVal, cycle.color, scaleFactor);
+
             // Radius line
             ctx.strokeStyle = cycle.color;
             ctx.lineWidth = 1.5;
-            ctx.globalAlpha = VISUAL.radiusLineAlpha;
+            ctx.globalAlpha = CONFIG.visual.radiusLineAlpha;
             ctx.beginPath();
-            ctx.moveTo(CENTER, CENTER);
+            ctx.moveTo(center, center);
             ctx.lineTo(x, y);
             ctx.stroke();
             ctx.globalAlpha = 1;
-            
+
             // Current point
             ctx.fillStyle = cycle.color;
             ctx.beginPath();
-            ctx.arc(x, y, 6, 0, 2 * Math.PI);
+            ctx.arc(x, y, CONFIG.pointRadius, 0, 2 * Math.PI);
             ctx.fill();
-            
+
             ctx.strokeStyle = 'white';
             ctx.lineWidth = 2;
             ctx.stroke();
         },
-        
-        drawProjectionLabels(x, y, xVal, yVal, color) {
-            const scale = CANVAS_SIZE / 600;
+
+        drawProjectionLabels(x, y, xVal, yVal, color, scaleFactor) {
+            const { center } = dimensions;
+            const offsets = CONFIG.projectionOffsets;
+
             ctx.fillStyle = color;
-            ctx.font = Math.round(20 * scale) + 'px sans-serif';
-            ctx.globalAlpha = 0.6; // More translucent
+            ctx.font = Math.round(CONFIG.fonts.projection * scaleFactor) + 'px sans-serif';
+            ctx.globalAlpha = CONFIG.visual.projectionLabelAlpha;
 
             // Horizontal projection
             ctx.textAlign = 'center';
-            const xLabelY = y > CENTER ? y + 15 * scale : y - 8 * scale;
-            ctx.fillText(xVal.toFixed(2), (CENTER + x) / 2, xLabelY);
+            const xLabelY = y > center ? y + offsets.labelBelow * scaleFactor : y - offsets.labelAbove * scaleFactor;
+            ctx.fillText(xVal.toFixed(2), (center + x) / 2, xLabelY);
 
             // Vertical projection
             ctx.save();
-            ctx.translate(x + (x > CENTER ? 18 * scale : -18 * scale), (CENTER + y) / 2);
+            ctx.translate(x + (x > center ? offsets.labelSide * scaleFactor : -offsets.labelSide * scaleFactor), (center + y) / 2);
             ctx.rotate(-Math.PI / 2);
             ctx.textAlign = 'center';
             ctx.fillText(yVal.toFixed(2), 0, 0);
             ctx.restore();
 
-            ctx.globalAlpha = 1; // Reset alpha
+            ctx.globalAlpha = 1;
         },
-        
-        drawVisualPops() {
-            for (let i = state.visualPops.length - 1; i >= 0; i--) {
-                const pop = state.visualPops[i];
+
+        drawPops(pops) {
+            const { visual } = CONFIG;
+            const updated = [];
+
+            pops.forEach(pop => {
                 pop.age++;
-                
-                if (pop.age > VISUAL.popMaxAge) {
-                    state.visualPops.splice(i, 1);
-                    continue;
-                }
-                
-                const progress = pop.age / VISUAL.popMaxAge;
-                const size = VISUAL.popStartSize + (VISUAL.popEndSize - VISUAL.popStartSize) * progress;
-                const opacity = 1 - progress;
-                
-                ctx.globalAlpha = opacity;
+                if (pop.age > visual.popMaxAge) return;
+
+                const progress = pop.age / visual.popMaxAge;
+                const size = visual.popStartSize + (visual.popEndSize - visual.popStartSize) * progress;
+
+                ctx.globalAlpha = 1 - progress;
                 ctx.fillStyle = pop.color;
                 ctx.beginPath();
                 ctx.arc(pop.x, pop.y, size, 0, 2 * Math.PI);
                 ctx.fill();
-                ctx.globalAlpha = 1;
-            }
+
+                updated.push(pop);
+            });
+
+            ctx.globalAlpha = 1;
+            return updated;
         },
-        
-        render() {
-            const cycle = FUNCTION_CYCLES[state.cycleIndex];
-            
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-            
+
+        render(cycleIndex, parameterT, pops) {
+            const cycle = FUNCTION_CYCLES[cycleIndex];
+
+            this.clear();
             this.drawAxes();
-            this.drawCircle(cycle, state.parameterT);
-            this.drawCurrentPoint(cycle, state.parameterT);
-            this.drawVisualPops();
+            this.drawCircle(cycle, parameterT);
+            this.drawCurrentPoint(cycle, parameterT);
+            return this.drawPops(pops);
         }
     };
-    
-    
+
     // ========================================
-    // ANIMATION LOOP
+    // UI MODULE
     // ========================================
-    
-    function updateAnimation() {
-        // Handle start pause
-        if (state.startPauseCounter > 0) {
-            state.startPauseCounter--;
-            return;
-        }
-        
-        // Handle completion pause
-        if (state.completionPauseCounter > 0) {
-            state.completionPauseCounter--;
-            if (state.completionPauseCounter === 0) {
-                resetForNextCycle();
-            }
-            return;
-        }
-        
-        // Start pad chord at the beginning of ascending cycles
-        const cycle = FUNCTION_CYCLES[state.cycleIndex];
-        if (cycle.ascending && !state.padStarted && audio.enabled) {
-            const key = music.getCurrentKey();
-            const rootFreq = KEY_FREQUENCIES[key][0];
-            audio.startPadChord(rootFreq);
-            state.padStarted = true;
-        }
 
-        // Update sweep
-        state.sweepProgress += TIMING.sweepSpeed;
-        music.checkAndPlayNotes();
-        
-        if (state.sweepProgress >= 1) {
-            state.sweepProgress = 1;
-            state.parameterT = Math.PI;
-            state.completionPauseCounter = TIMING.completionPauseFrames;
-        } else {
-            state.parameterT = -Math.PI + state.sweepProgress * 2 * Math.PI;
-        }
-    }
-    
-    function resetForNextCycle() {
-        state.sweepProgress = 0;
-        state.startPauseCounter = TIMING.startPauseFrames;
-        state.parameterT = -Math.PI;
-        state.lastProgressQuarter = -1;
-        state.noteIndex = 0;
-        state.finalNotePlayed = false;
-        state.padStarted = false;
-        
-        state.cycleIndex = (state.cycleIndex + 1) % FUNCTION_CYCLES.length;
-        
-        // Advance circle of fifths every 2 cycles
-        if (state.cycleIndex % 2 === 0) {
-            state.fifthsIndex = (state.fifthsIndex + 1) % CIRCLE_OF_FIFTHS.length;
-        }
-    }
-    
-    function animate() {
-        updateAnimation();
-        renderer.render();
-        
-        // Update all labels with MathJax when cycle changes
-        const cycle = FUNCTION_CYCLES[state.cycleIndex];
-        const labelElement = document.getElementById('functionLabel');
-        const xAxisLabel = document.getElementById('xAxisLabel');
-        const yAxisLabel = document.getElementById('yAxisLabel');
+    const ui = {
+        updateTickPositions() {
+            const { center, scale } = dimensions;
+            const scaleFactor = dimensions.getScaleFactor();
+            const offsets = CONFIG.tickOffsets;
 
-        if (labelElement.dataset.cycleIndex !== String(state.cycleIndex)) {
-            // Update main function label
-            labelElement.innerHTML = cycle.name;
-            labelElement.style.color = cycle.color;
-            labelElement.dataset.cycleIndex = state.cycleIndex;
+            elements.tickXPos.style.left = (center + scale + offsets.xPosLeft * scaleFactor) + 'px';
+            elements.tickXPos.style.top = (center - offsets.xTop * scaleFactor) + 'px';
+            elements.tickXPos.style.transform = 'translateY(-50%)';
 
-            // Update axis labels
-            xAxisLabel.innerHTML = cycle.xLabel;
-            yAxisLabel.innerHTML = cycle.yLabel;
+            elements.tickXNeg.style.left = (center - scale - offsets.xNegLeft * scaleFactor) + 'px';
+            elements.tickXNeg.style.top = (center - offsets.xTop * scaleFactor) + 'px';
+            elements.tickXNeg.style.transform = 'translateY(-50%)';
 
-            // Trigger MathJax to typeset all labels
+            elements.tickYPos.style.left = (center - offsets.yLeft * scaleFactor) + 'px';
+            elements.tickYPos.style.top = (center - scale - offsets.yPosTop * scaleFactor) + 'px';
+            elements.tickYPos.style.transform = 'translateX(-100%)';
+
+            elements.tickYNeg.style.left = (center - offsets.yLeft * scaleFactor) + 'px';
+            elements.tickYNeg.style.top = (center + scale + offsets.yNegTop * scaleFactor) + 'px';
+            elements.tickYNeg.style.transform = 'translateX(-100%)';
+        },
+
+        updateFontSizes() {
+            const scaleFactor = dimensions.getScaleFactor();
+            const tickSize = (CONFIG.fonts.tick * scaleFactor) + 'rem';
+            const axisSize = (CONFIG.fonts.axisLabel * scaleFactor) + 'rem';
+
+            elements.tickXPos.style.fontSize = tickSize;
+            elements.tickXNeg.style.fontSize = tickSize;
+            elements.tickYPos.style.fontSize = tickSize;
+            elements.tickYNeg.style.fontSize = tickSize;
+            elements.xAxisLabel.style.fontSize = axisSize;
+            elements.yAxisLabel.style.fontSize = axisSize;
+        },
+
+        updateLabels(cycle) {
+            elements.functionLabel.innerHTML = cycle.name;
+            elements.functionLabel.style.color = cycle.color;
+            elements.xAxisLabel.innerHTML = cycle.xLabel;
+            elements.yAxisLabel.innerHTML = cycle.yLabel;
+
             if (typeof MathJax !== 'undefined' && MathJax.typeset) {
-                MathJax.typeset([labelElement, xAxisLabel, yAxisLabel]);
+                MathJax.typeset([elements.functionLabel, elements.xAxisLabel, elements.yAxisLabel]);
             }
+        },
+
+        updateAudioButton(enabled) {
+            elements.audioIcon.innerHTML = enabled ? '&#x1F50A;' : '&#x1F507;';
+            elements.audioButton.childNodes[1].textContent = enabled ? ' Music playing' : ' Play circle of fifths music';
+            elements.audioButton.style.background = enabled ? CONFIG.colors.buttonActive : CONFIG.colors.buttonInactive;
+        },
+
+        handleResize() {
+            dimensions.update();
+            this.updateTickPositions();
+            this.updateFontSizes();
         }
-        
-        requestAnimationFrame(animate);
-    }
-    
+    };
+
     // ========================================
-    // RESPONSIVE SIZING
+    // ANIMATION CONTROLLER
     // ========================================
 
-    function updateCanvasSize() {
-        const container = document.getElementById('canvasContainer');
-        const containerWidth = container.clientWidth;
+    const controller = {
+        createPop(noteIndex, cycle) {
+            const { center, scale } = dimensions;
+            const targetT = musicTheory.getAxisCrossingT(noteIndex);
+            const xVal = cycle.xFunc(targetT);
+            const yVal = cycle.yFunc(targetT);
 
-        // Set canvas size based on container width
-        CANVAS_SIZE = containerWidth;
-        SCALE = CANVAS_SIZE * SCALE_RATIO;
-        CENTER = CANVAS_SIZE / 2;
+            return {
+                x: center + xVal * scale,
+                y: center - yVal * scale,
+                age: 0,
+                color: cycle.color
+            };
+        },
 
-        // Update canvas dimensions (use 2x for retina displays)
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = CANVAS_SIZE * dpr;
-        canvas.height = CANVAS_SIZE * dpr;
-        canvas.style.width = CANVAS_SIZE + 'px';
-        canvas.style.height = CANVAS_SIZE + 'px';
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // Reset and scale in one call
+        playNoteAndCreatePop() {
+            const cycle = FUNCTION_CYCLES[state.cycleIndex];
+            const key = musicTheory.getCurrentKey(state.fifthsIndex);
+            const frequency = musicTheory.getArpeggioFrequency(key, state.noteIndex, cycle.ascending);
 
-        // Update tick label positions
-        updateTickLabelPositions();
+            audio.playBell(frequency);
 
-        // Scale fonts based on canvas size
-        const fontScale = CANVAS_SIZE / 600;
-        const tickFontSize = (1.35 * fontScale) + 'rem';
-        const axisLabelFontSize = (1.65 * fontScale) + 'rem';
+            // Stop pad chord on first note of descending arpeggio
+            if (!cycle.ascending && state.noteIndex === 0) {
+                audio.stopPad();
+            }
 
-        document.getElementById('tickXPos').style.fontSize = tickFontSize;
-        document.getElementById('tickXNeg').style.fontSize = tickFontSize;
-        document.getElementById('tickYPos').style.fontSize = tickFontSize;
-        document.getElementById('tickYNeg').style.fontSize = tickFontSize;
-        document.getElementById('xAxisLabel').style.fontSize = axisLabelFontSize;
-        document.getElementById('yAxisLabel').style.fontSize = axisLabelFontSize;
-    }
+            state.pops.push(this.createPop(state.noteIndex, cycle));
+            state.noteIndex++;
+        },
 
-    function updateTickLabelPositions() {
-        const tickXPos = document.getElementById('tickXPos');
-        const tickXNeg = document.getElementById('tickXNeg');
-        const tickYPos = document.getElementById('tickYPos');
-        const tickYNeg = document.getElementById('tickYNeg');
+        checkAndPlayNotes() {
+            if (!audio.enabled) return;
 
-        // Scale offsets based on canvas size
-        const scale = CANVAS_SIZE / 600;
+            const adjustedProgress = state.sweepProgress + CONFIG.timing.earlyTriggerOffset;
+            const currentQuarter = Math.floor(adjustedProgress * 4);
 
-        // X-axis ticks (at ±SCALE from center, slightly above center line)
-        tickXPos.style.left = (CENTER + SCALE + 15 * scale) + 'px';
-        tickXPos.style.top = (CENTER - 18 * scale) + 'px';
-        tickXPos.style.transform = 'translateY(-50%)';
+            if (currentQuarter !== state.lastProgressQuarter && currentQuarter >= 1 && currentQuarter <= 3) {
+                this.playNoteAndCreatePop();
+                state.lastProgressQuarter = currentQuarter;
+            }
 
-        tickXNeg.style.left = (CENTER - SCALE - 30 * scale) + 'px';
-        tickXNeg.style.top = (CENTER - 18 * scale) + 'px';
-        tickXNeg.style.transform = 'translateY(-50%)';
+            if (state.sweepProgress >= CONFIG.timing.finalNoteProgress && !state.finalNotePlayed) {
+                this.playNoteAndCreatePop();
+                state.finalNotePlayed = true;
+            }
+        },
 
-        // Y-axis ticks (at ±SCALE from center)
-        tickYPos.style.left = (CENTER - 10 * scale) + 'px';
-        tickYPos.style.top = (CENTER - SCALE - 28 * scale) + 'px';
-        tickYPos.style.transform = 'translateX(-100%)';
+        resetForNextCycle() {
+            state.sweepProgress = 0;
+            state.startPauseCounter = CONFIG.timing.startPauseFrames;
+            state.parameterT = -Math.PI;
+            state.lastProgressQuarter = -1;
+            state.noteIndex = 0;
+            state.finalNotePlayed = false;
+            state.padStarted = false;
 
-        tickYNeg.style.left = (CENTER - 10 * scale) + 'px';
-        tickYNeg.style.top = (CENTER + SCALE + 8 * scale) + 'px';
-        tickYNeg.style.transform = 'translateX(-100%)';
-    }
+            state.cycleIndex = (state.cycleIndex + 1) % FUNCTION_CYCLES.length;
+
+            if (state.cycleIndex % 2 === 0) {
+                state.fifthsIndex = (state.fifthsIndex + 1) % 12;
+            }
+        },
+
+        tick() {
+            // Handle start pause
+            if (state.startPauseCounter > 0) {
+                state.startPauseCounter--;
+                return;
+            }
+
+            // Handle completion pause
+            if (state.completionPauseCounter > 0) {
+                state.completionPauseCounter--;
+                if (state.completionPauseCounter === 0) {
+                    this.resetForNextCycle();
+                }
+                return;
+            }
+
+            // Start pad chord at beginning of ascending cycles
+            const cycle = FUNCTION_CYCLES[state.cycleIndex];
+            if (cycle.ascending && !state.padStarted && audio.enabled) {
+                const key = musicTheory.getCurrentKey(state.fifthsIndex);
+                audio.startPad(musicTheory.keyFrequencies[key][0]);
+                state.padStarted = true;
+            }
+
+            // Update sweep
+            state.sweepProgress += CONFIG.timing.sweepSpeed;
+            this.checkAndPlayNotes();
+
+            if (state.sweepProgress >= 1) {
+                state.sweepProgress = 1;
+                state.parameterT = Math.PI;
+                state.completionPauseCounter = CONFIG.timing.completionPauseFrames;
+            } else {
+                state.parameterT = -Math.PI + state.sweepProgress * 2 * Math.PI;
+            }
+        },
+
+        animate() {
+            this.tick();
+            state.pops = renderer.render(state.cycleIndex, state.parameterT, state.pops);
+
+            // Update labels when cycle changes
+            if (state.lastLabelCycleIndex !== state.cycleIndex) {
+                ui.updateLabels(FUNCTION_CYCLES[state.cycleIndex]);
+                state.lastLabelCycleIndex = state.cycleIndex;
+            }
+
+            requestAnimationFrame(() => this.animate());
+        }
+    };
 
     // ========================================
     // INITIALIZATION
     // ========================================
 
-    const audioButton = document.getElementById('audioButton');
-    const audioIcon = document.getElementById('audioIcon');
-    audioButton.addEventListener('click', function() {
-        if (!audio.enabled) {
-            if (!audio.context) audio.initialize();
-            audio.enabled = true;
-            audioIcon.innerHTML = '&#x1F50A;';
-            audioButton.childNodes[1].textContent = ' Music playing';
-            audioButton.style.background = '#059669';
-        } else {
-            audio.enabled = false;
-            audioIcon.innerHTML = '&#x1F507;';
-            audioButton.childNodes[1].textContent = ' Play circle of fifths music';
-            audioButton.style.background = '#2563eb';
-        }
+    // Set up event handlers
+    elements.audioButton.addEventListener('click', () => {
+        const enabled = audio.toggle();
+        ui.updateAudioButton(enabled);
     });
 
-    // Initialize canvas size and handle window resize
-    updateCanvasSize();
-    window.addEventListener('resize', updateCanvasSize);
+    window.addEventListener('resize', () => ui.handleResize());
 
-    // Start animation
-    animate();
+    // Initialize
+    ui.handleResize();
+    controller.animate();
+
 })();
 </script>
-
