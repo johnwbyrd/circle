@@ -7,6 +7,11 @@ MathJax = {
 };
 </script>
 <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+<style>
+#rangeLabel mjx-container {
+    filter: drop-shadow(2px 2px 3px rgba(0, 0, 0, 0.35));
+}
+</style>
 
 <div id="outerContainer" style="max-width: 700px; margin: 2rem auto; padding: 1.5rem; background: white;">
     <div id="canvasContainer" style="position: relative; width: 100%; margin: 0 auto;">
@@ -22,6 +27,7 @@ MathJax = {
         <div id="tickYNeg" style="position: absolute; font-size: 1.35rem; color: #6b7280;">$-1$</div>
     </div>
     <div id="functionLabel" style="text-align: center; margin-top: 1rem; font-size: 1.5rem; font-weight: 500; color: #333; font-family: inherit; line-height: 2;"></div>
+    <div id="rangeLabel" style="text-align: center; margin-top: 0.5rem; font-size: 1.5rem; font-weight: 500; color: #333;">$-\pi \leq x \leq \pi$</div>
     <button id="audioButton" style="display: block; margin: 1rem auto; padding: 0.75rem 1.5rem; font-size: 1rem; font-family: inherit; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"><span id="audioIcon">&#x1F507;</span> Play circle of fifths music</button>
 </div>
 
@@ -63,7 +69,7 @@ MathJax = {
         fonts: {
             tick: 1.35,
             axisLabel: 1.65,
-            projection: 20           // in pixels
+            projection: 12          // in pixels
         },
 
         // Timing
@@ -177,6 +183,7 @@ MathJax = {
         canvas: document.getElementById('parametricCircle'),
         container: document.getElementById('canvasContainer'),
         functionLabel: document.getElementById('functionLabel'),
+        rangeLabel: document.getElementById('rangeLabel'),
         xAxisLabel: document.getElementById('xAxisLabel'),
         yAxisLabel: document.getElementById('yAxisLabel'),
         tickXPos: document.getElementById('tickXPos'),
@@ -248,11 +255,15 @@ MathJax = {
         ['left', 'top'],      // Cycle 0
         ['left', 'bottom'],   // Cycle 1
         ['right', 'top'],     // Cycle 2
-        ['right', 'bottom']   // Cycle 3
+        ['right', 'bottom'],  // Cycle 3
+        ['right', 'bottom'],  // Cycle 4 (reverse starts)
+        ['right', 'top'],     // Cycle 5
+        ['left', 'bottom'],   // Cycle 6
+        ['left', 'top']       // Cycle 7
     ];
 
     function getActiveEdges(cycleIndex) {
-        return EDGE_PATTERNS[cycleIndex % 4];
+        return EDGE_PATTERNS[cycleIndex % 8];
     }
 
     // ========================================
@@ -864,6 +875,7 @@ MathJax = {
         updateLabels(cycle) {
             elements.functionLabel.innerHTML = cycle.name;
             elements.functionLabel.style.color = cycle.color;
+            elements.rangeLabel.style.color = cycle.color;
             elements.xAxisLabel.innerHTML = cycle.xLabel;
             elements.yAxisLabel.innerHTML = cycle.yLabel;
 
