@@ -1,0 +1,29 @@
+<script>
+MathJax = {
+  tex: {
+    inlineMath: [['$', '$'], ['\\(', '\\)']],
+    processEscapes: true
+  }
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+
+<div id="outerContainer" style="max-width: min(700px, 90vh); margin: 2rem auto; padding: 1.5rem; background: white;">
+    <div id="canvasContainer" style="position: relative; width: 100%; margin: 0 auto;">
+        <canvas id="parametricCircle" style="display: block; width: 100%; height: auto; border: none;"></canvas>
+        <!-- X axis label (right side) -->
+        <div id="xAxisLabel" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 1.65rem; color: #6b7280; line-height: 1.4;"></div>
+        <!-- Y axis label (top) -->
+        <div id="yAxisLabel" style="position: absolute; top: 8px; left: 50%; transform: translateX(-50%); font-size: 1.65rem; color: #6b7280; line-height: 1.4;"></div>
+        <!-- Tick labels using MathJax (positions set dynamically) -->
+        <div id="tickXPos" style="position: absolute; font-size: 1.35rem; color: #6b7280;">$1$</div>
+        <div id="tickXNeg" style="position: absolute; font-size: 1.35rem; color: #6b7280;">$-1$</div>
+        <div id="tickYPos" style="position: absolute; font-size: 1.35rem; color: #6b7280;">$1$</div>
+        <div id="tickYNeg" style="position: absolute; font-size: 1.35rem; color: #6b7280;">$-1$</div>
+    </div>
+    <div id="functionLabel" style="text-align: center; margin-top: 1rem; font-size: clamp(1rem, 3vw, 1.5rem); font-weight: 500; color: #333; font-family: inherit; line-height: 2;"></div>
+    <div id="rangeLabel" style="text-align: center; margin-top: 0.5rem; font-size: clamp(1rem, 3vw, 1.5rem); font-weight: 500; color: #333;">$-\pi \leq x \leq \pi$</div>
+    <button id="audioButton" style="display: block; margin: 1rem auto; padding: 0.75rem 1.5rem; font-size: 1rem; font-family: inherit; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"><span id="audioIcon">&#x1F507;</span> Play circle of fifths music</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/gh/johnwbyrd/circle@main/circle.js"></script>
