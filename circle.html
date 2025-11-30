@@ -8,7 +8,7 @@ MathJax = {
 </script>
 <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
 
-<div id="outerContainer" style="max-width: 700px; margin: 2rem auto; padding: 1.5rem; background: white;">
+<div id="outerContainer" style="max-width: min(700px, 90vh); margin: 2rem auto; padding: 1.5rem; background: white;">
     <div id="canvasContainer" style="position: relative; width: 100%; margin: 0 auto;">
         <canvas id="parametricCircle" style="display: block; width: 100%; height: auto; border: none;"></canvas>
         <!-- X axis label (right side) -->
@@ -21,8 +21,8 @@ MathJax = {
         <div id="tickYPos" style="position: absolute; font-size: 1.35rem; color: #6b7280;">$1$</div>
         <div id="tickYNeg" style="position: absolute; font-size: 1.35rem; color: #6b7280;">$-1$</div>
     </div>
-    <div id="functionLabel" style="text-align: center; margin-top: 1rem; font-size: 1.5rem; font-weight: 500; color: #333; font-family: inherit; line-height: 2;"></div>
-    <div id="rangeLabel" style="text-align: center; margin-top: 0.5rem; font-size: 1.5rem; font-weight: 500; color: #333;">$-\pi \leq x \leq \pi$</div>
+    <div id="functionLabel" style="text-align: center; margin-top: 1rem; font-size: clamp(1rem, 3vw, 1.5rem); font-weight: 500; color: #333; font-family: inherit; line-height: 2;"></div>
+    <div id="rangeLabel" style="text-align: center; margin-top: 0.5rem; font-size: clamp(1rem, 3vw, 1.5rem); font-weight: 500; color: #333;">$-\pi \leq x \leq \pi$</div>
     <button id="audioButton" style="display: block; margin: 1rem auto; padding: 0.75rem 1.5rem; font-size: 1rem; font-family: inherit; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"><span id="audioIcon">&#x1F507;</span> Play circle of fifths music</button>
 </div>
 
@@ -217,6 +217,13 @@ MathJax = {
 
         getScaleFactor() {
             return this.canvasSize / CONFIG.baseSize;
+        },
+
+        // For text elements that need to stay readable on mobile
+        getTextScaleFactor() {
+            const factor = this.canvasSize / CONFIG.baseSize;
+            // On small screens, don't let text shrink below 70% of base size
+            return Math.max(factor, 0.7);
         }
     };
 
@@ -447,12 +454,28 @@ MathJax = {
             });
         },
 
+        killAll() {
+            if (!this.context) return;
+
+            // Immediately stop all pad oscillators
+            this.padOscillators.forEach(osc => {
+                try { osc.stop(0); } catch (e) { /* ignore */ }
+            });
+            this.padOscillators = [];
+            this.padGains = [];
+
+            // Close and recreate context to kill any in-flight bell tones
+            this.context.close();
+            this.context = null;
+        },
+
         toggle() {
             if (!this.enabled) {
                 if (!this.context) this.init();
                 this.enabled = true;
             } else {
                 this.enabled = false;
+                this.killAll();
             }
             return this.enabled;
         }
@@ -744,9 +767,10 @@ MathJax = {
         drawProjectionLabels(x, y, xVal, yVal, color, scaleFactor) {
             const { center } = dimensions;
             const offsets = CONFIG.projectionOffsets;
+            const textScaleFactor = dimensions.getTextScaleFactor();
 
             ctx.fillStyle = color;
-            ctx.font = Math.round(CONFIG.fonts.projection * scaleFactor) + 'px sans-serif';
+            ctx.font = Math.round(CONFIG.fonts.projection * textScaleFactor) + 'px sans-serif';
             ctx.globalAlpha = CONFIG.visual.projectionLabelAlpha;
 
             // Horizontal projection
@@ -855,7 +879,7 @@ MathJax = {
         },
 
         updateFontSizes() {
-            const scaleFactor = dimensions.getScaleFactor();
+            const scaleFactor = dimensions.getTextScaleFactor();
             const tickSize = (CONFIG.fonts.tick * scaleFactor) + 'rem';
             const axisSize = (CONFIG.fonts.axisLabel * scaleFactor) + 'rem';
 
