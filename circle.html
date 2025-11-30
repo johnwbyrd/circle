@@ -7,11 +7,6 @@ MathJax = {
 };
 </script>
 <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
-<style>
-#rangeLabel mjx-container {
-    filter: drop-shadow(2px 2px 3px rgba(0, 0, 0, 0.35));
-}
-</style>
 
 <div id="outerContainer" style="max-width: 700px; margin: 2rem auto; padding: 1.5rem; background: white;">
     <div id="canvasContainer" style="position: relative; width: 100%; margin: 0 auto;">
@@ -42,7 +37,7 @@ MathJax = {
     const CONFIG = {
         // Layout
         baseSize: 600,              // Reference size for scaling
-        scaleRatio: 0.18,           // Scale as fraction of canvas size (smaller to leave room for sine waves)
+        scaleRatio: 0.17,           // Scale as fraction of canvas size (smaller to leave room for sine waves)
         axisMargin: 50,             // Margin from edge to axis endpoints
         tickLength: 5,              // Half-length of tick marks
         pointRadius: 6,             // Current point radius
@@ -133,7 +128,7 @@ MathJax = {
         },
         sineWave: {
             spreadSpeed: 0.6,         // How fast the wave spreads outward (pixels per frame at base size)
-            maxSpread: 180,           // Maximum distance from edge (pixels at base size) - full wave visible
+            maxSpread: 190,           // Maximum distance from edge (pixels at base size) - full wave visible
             fadeFrames: 60,           // Frames to fade out after cycle ends
             color: '#9ca3af',
             lineWidth: 1.5
@@ -874,8 +869,6 @@ MathJax = {
 
         updateLabels(cycle) {
             elements.functionLabel.innerHTML = cycle.name;
-            elements.functionLabel.style.color = cycle.color;
-            elements.rangeLabel.style.color = cycle.color;
             elements.xAxisLabel.innerHTML = cycle.xLabel;
             elements.yAxisLabel.innerHTML = cycle.yLabel;
 
