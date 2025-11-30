@@ -8,18 +8,18 @@ MathJax = {
 </script>
 <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
 
-<div style="max-width: 700px; margin: 2rem auto; padding: 1.5rem; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-    <div id="canvasContainer" style="position: relative; width: 600px; margin: 0 auto;">
-        <canvas id="parametricCircle" width="600" height="600" style="display: block; border: 1px solid #e0e0e0; border-radius: 4px;"></canvas>
+<div id="outerContainer" style="max-width: 700px; margin: 2rem auto; padding: 1.5rem; background: white;">
+    <div id="canvasContainer" style="position: relative; width: 100%; margin: 0 auto;">
+        <canvas id="parametricCircle" style="display: block; width: 100%; height: auto; border: none;"></canvas>
         <!-- X axis label (right side) -->
         <div id="xAxisLabel" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 1.65rem; color: #6b7280; line-height: 1.4;"></div>
         <!-- Y axis label (top) -->
         <div id="yAxisLabel" style="position: absolute; top: 8px; left: 50%; transform: translateX(-50%); font-size: 1.65rem; color: #6b7280; line-height: 1.4;"></div>
-        <!-- Tick labels using MathJax -->
-        <div id="tickXPos" style="position: absolute; top: calc(50% - 18px); left: calc(50% + 180px + 15px); transform: translateY(-50%); font-size: 1.35rem; color: #6b7280;">$1$</div>
-        <div id="tickXNeg" style="position: absolute; top: calc(50% - 18px); left: calc(50% - 180px - 30px); transform: translateY(-50%); font-size: 1.35rem; color: #6b7280;">$-1$</div>
-        <div id="tickYPos" style="position: absolute; top: calc(50% - 180px - 28px); left: 50%; transform: translateX(-100%); margin-left: -10px; font-size: 1.35rem; color: #6b7280;">$1$</div>
-        <div id="tickYNeg" style="position: absolute; top: calc(50% + 180px + 8px); left: 50%; transform: translateX(-100%); margin-left: -10px; font-size: 1.35rem; color: #6b7280;">$-1$</div>
+        <!-- Tick labels using MathJax (positions set dynamically) -->
+        <div id="tickXPos" style="position: absolute; font-size: 1.35rem; color: #6b7280;">$1$</div>
+        <div id="tickXNeg" style="position: absolute; font-size: 1.35rem; color: #6b7280;">$-1$</div>
+        <div id="tickYPos" style="position: absolute; font-size: 1.35rem; color: #6b7280;">$1$</div>
+        <div id="tickYNeg" style="position: absolute; font-size: 1.35rem; color: #6b7280;">$-1$</div>
     </div>
     <div id="functionLabel" style="text-align: center; margin-top: 1rem; font-size: 1.5rem; font-weight: 500; color: #333; font-family: inherit; line-height: 2;"></div>
     <button id="audioButton" style="display: block; margin: 1rem auto; padding: 0.75rem 1.5rem; font-size: 1rem; font-family: inherit; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"><span id="audioIcon">&#x1F507;</span> Play circle of fifths music</button>
@@ -32,16 +32,19 @@ MathJax = {
     // ========================================
     // CONSTANTS AND CONFIGURATION
     // ========================================
-    
-    const CANVAS_SIZE = 600;
-    const SCALE = 180; // pixels per unit
-    const CENTER = CANVAS_SIZE / 2;
+
+    // Dynamic sizing - will be updated on resize
+    let CANVAS_SIZE = 600;
+    let SCALE = 180; // pixels per unit (0.3 of canvas size)
+    let CENTER = CANVAS_SIZE / 2;
+
+    const SCALE_RATIO = 0.3; // Scale as fraction of canvas size
     
     const TIMING = {
         sweepSpeed: 0.0032175,      // Progress per frame (~5 seconds)
         startPauseFrames: 30,        // Pause before sweep starts
         completionPauseFrames: 30,   // Pause after sweep completes
-        earlyTriggerOffset: 0.03,    // Trigger notes 3% early
+        earlyTriggerOffset: 0.005,    // Trigger notes 0.5% early (~25ms)
         finalNoteProgress: 0.97      // When to play final note
     };
     
@@ -56,7 +59,16 @@ MathJax = {
             { freq: 2.76, gain: 0.3 },
             { freq: 5.4, gain: 0.15 },
             { freq: 8.93, gain: 0.08 }
-        ]
+        ],
+        // Pad chord settings
+        pad: {
+            octavesDown: 2,          // How many octaves below the bell tones
+            gain: 0.08,              // Quieter than bells
+            swellTime: 1.2,          // Seconds to fade in
+            fadeTime: 4.0,           // Seconds to fade out (during descending arp)
+            // Slight detuning for richness (cents)
+            detune: [0, -4, 0, 3]
+        }
     };
     
     const VISUAL = {
@@ -147,6 +159,7 @@ MathJax = {
         noteIndex: 0,               // Which note in arpeggio (0-3)
         lastProgressQuarter: -1,    // Track which quarter we're in
         finalNotePlayed: false,     // Flag for final note
+        padStarted: false,          // Flag for pad chord started this cycle
         
         // Visual state
         visualPops: []              // Array of {x, y, age, color}
@@ -163,6 +176,9 @@ MathJax = {
         convolver: null,
         dryGain: null,
         wetGain: null,
+        // Pad chord state
+        padOscillators: [],
+        padGains: [],
         
         initialize() {
             this.context = new (window.AudioContext || window.webkitAudioContext)();
@@ -210,26 +226,106 @@ MathJax = {
         
         playBellTone(frequency) {
             if (!this.enabled || !this.context) return;
-            
+
             const now = this.context.currentTime;
             const start = now + AUDIO.scheduleAheadTime;
             const duration = AUDIO.bellDuration;
-            
+
             AUDIO.harmonics.forEach(harmonic => {
                 const osc = this.context.createOscillator();
                 const gain = this.context.createGain();
-                
+
                 osc.frequency.value = frequency * harmonic.freq;
                 osc.type = 'sine';
-                
+
                 gain.gain.setValueAtTime(harmonic.gain, start);
                 gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
-                
+
                 osc.connect(gain);
                 gain.connect(this.masterGain);
-                
+
                 osc.start(start);
                 osc.stop(start + duration);
+            });
+        },
+
+        startPadChord(rootFrequency) {
+            if (!this.enabled || !this.context) return;
+
+            const now = this.context.currentTime;
+            const start = now + AUDIO.scheduleAheadTime;
+
+            // Calculate 1-3-5 frequencies (root, major 3rd, perfect 5th)
+            // Drop down octaves for warmth
+            const octaveMultiplier = Math.pow(0.5, AUDIO.pad.octavesDown);
+            const baseFreq = rootFrequency * octaveMultiplier;
+            const chordFreqs = [
+                { freq: baseFreq / 4, gainMult: 10.0 }, // Root 2 octaves down (sub bass)
+                { freq: baseFreq, gainMult: 1.0 },      // Root (1)
+                { freq: baseFreq * Math.pow(2, 4/12), gainMult: 1.0 },  // Major 3rd
+                { freq: baseFreq * Math.pow(2, 7/12), gainMult: 1.0 }   // Perfect 5th
+            ];
+
+            chordFreqs.forEach((note, i) => {
+                // Create two oscillators per note for richness
+                for (let layer = 0; layer < 2; layer++) {
+                    const osc = this.context.createOscillator();
+                    const gain = this.context.createGain();
+
+                    osc.type = 'sine';
+                    osc.frequency.value = note.freq;
+                    // Apply slight detuning for warmth (use modulo for detune array)
+                    osc.detune.value = (AUDIO.pad.detune[i % AUDIO.pad.detune.length] || 0) + (layer === 0 ? -2 : 2);
+
+                    // Start silent and swell in, apply gain multiplier for bass notes
+                    gain.gain.setValueAtTime(0.001, start);
+                    gain.gain.exponentialRampToValueAtTime(
+                        (AUDIO.pad.gain / 2) * note.gainMult,
+                        start + AUDIO.pad.swellTime
+                    );
+
+                    osc.connect(gain);
+                    gain.connect(this.masterGain);
+
+                    osc.start(start);
+
+                    this.padOscillators.push(osc);
+                    this.padGains.push(gain);
+                }
+            });
+        },
+
+        stopPadChord() {
+            if (!this.context || this.padOscillators.length === 0) return;
+
+            const now = this.context.currentTime;
+
+            // Capture current oscillators/gains to fade out
+            const fadingOscs = this.padOscillators;
+            const fadingGains = this.padGains;
+
+            // Clear arrays immediately so new chord can start fresh
+            this.padOscillators = [];
+            this.padGains = [];
+
+            // Fade out the captured oscillators
+            fadingGains.forEach(gain => {
+                try {
+                    gain.gain.cancelScheduledValues(now);
+                    gain.gain.setValueAtTime(gain.gain.value, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + AUDIO.pad.fadeTime);
+                } catch (e) {
+                    // Ignore if already stopped
+                }
+            });
+
+            // Schedule oscillator stops after fade
+            fadingOscs.forEach(osc => {
+                try {
+                    osc.stop(now + AUDIO.pad.fadeTime + 0.1);
+                } catch (e) {
+                    // Ignore if already stopped
+                }
             });
         }
     };
@@ -265,21 +361,27 @@ MathJax = {
         
         playNoteAtCrossing() {
             const frequency = this.getNoteFrequency();
+            const cycle = this.getCurrentCycle();
             audio.playBellTone(frequency);
-            
+
+            // Stop pad chord on first note of descending arpeggio (8)
+            // For descending, noteIndex 0 plays the octave (8)
+            if (!cycle.ascending && state.noteIndex === 0) {
+                audio.stopPadChord();
+            }
+
             // Create visual pop at axis crossing
             const targetT = this.getAxisCrossingPosition(state.noteIndex);
-            const cycle = this.getCurrentCycle();
             const xVal = cycle.xFunc(targetT);
             const yVal = cycle.yFunc(targetT);
-            
+
             state.visualPops.push({
                 x: CENTER + xVal * SCALE,
                 y: CENTER - yVal * SCALE,
                 age: 0,
                 color: cycle.color
             });
-            
+
             state.noteIndex++;
         },
         
@@ -434,23 +536,24 @@ MathJax = {
         },
         
         drawProjectionLabels(x, y, xVal, yVal, color) {
+            const scale = CANVAS_SIZE / 600;
             ctx.fillStyle = color;
-            ctx.font = '20px sans-serif';
+            ctx.font = Math.round(20 * scale) + 'px sans-serif';
             ctx.globalAlpha = 0.6; // More translucent
-            
+
             // Horizontal projection
             ctx.textAlign = 'center';
-            const xLabelY = y > CENTER ? y + 15 : y - 8;
+            const xLabelY = y > CENTER ? y + 15 * scale : y - 8 * scale;
             ctx.fillText(xVal.toFixed(2), (CENTER + x) / 2, xLabelY);
-            
+
             // Vertical projection
             ctx.save();
-            ctx.translate(x + (x > CENTER ? 18 : -18), (CENTER + y) / 2);
+            ctx.translate(x + (x > CENTER ? 18 * scale : -18 * scale), (CENTER + y) / 2);
             ctx.rotate(-Math.PI / 2);
             ctx.textAlign = 'center';
             ctx.fillText(yVal.toFixed(2), 0, 0);
             ctx.restore();
-            
+
             ctx.globalAlpha = 1; // Reset alpha
         },
         
@@ -480,7 +583,7 @@ MathJax = {
         render() {
             const cycle = FUNCTION_CYCLES[state.cycleIndex];
             
-            ctx.fillStyle = '#fafafa';
+            ctx.fillStyle = '#ffffff';
             ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
             
             this.drawAxes();
@@ -511,6 +614,15 @@ MathJax = {
             return;
         }
         
+        // Start pad chord at the beginning of ascending cycles
+        const cycle = FUNCTION_CYCLES[state.cycleIndex];
+        if (cycle.ascending && !state.padStarted && audio.enabled) {
+            const key = music.getCurrentKey();
+            const rootFreq = KEY_FREQUENCIES[key][0];
+            audio.startPadChord(rootFreq);
+            state.padStarted = true;
+        }
+
         // Update sweep
         state.sweepProgress += TIMING.sweepSpeed;
         music.checkAndPlayNotes();
@@ -531,6 +643,7 @@ MathJax = {
         state.lastProgressQuarter = -1;
         state.noteIndex = 0;
         state.finalNotePlayed = false;
+        state.padStarted = false;
         
         state.cycleIndex = (state.cycleIndex + 1) % FUNCTION_CYCLES.length;
         
@@ -570,9 +683,74 @@ MathJax = {
     }
     
     // ========================================
+    // RESPONSIVE SIZING
+    // ========================================
+
+    function updateCanvasSize() {
+        const container = document.getElementById('canvasContainer');
+        const containerWidth = container.clientWidth;
+
+        // Set canvas size based on container width
+        CANVAS_SIZE = containerWidth;
+        SCALE = CANVAS_SIZE * SCALE_RATIO;
+        CENTER = CANVAS_SIZE / 2;
+
+        // Update canvas dimensions (use 2x for retina displays)
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = CANVAS_SIZE * dpr;
+        canvas.height = CANVAS_SIZE * dpr;
+        canvas.style.width = CANVAS_SIZE + 'px';
+        canvas.style.height = CANVAS_SIZE + 'px';
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // Reset and scale in one call
+
+        // Update tick label positions
+        updateTickLabelPositions();
+
+        // Scale fonts based on canvas size
+        const fontScale = CANVAS_SIZE / 600;
+        const tickFontSize = (1.35 * fontScale) + 'rem';
+        const axisLabelFontSize = (1.65 * fontScale) + 'rem';
+
+        document.getElementById('tickXPos').style.fontSize = tickFontSize;
+        document.getElementById('tickXNeg').style.fontSize = tickFontSize;
+        document.getElementById('tickYPos').style.fontSize = tickFontSize;
+        document.getElementById('tickYNeg').style.fontSize = tickFontSize;
+        document.getElementById('xAxisLabel').style.fontSize = axisLabelFontSize;
+        document.getElementById('yAxisLabel').style.fontSize = axisLabelFontSize;
+    }
+
+    function updateTickLabelPositions() {
+        const tickXPos = document.getElementById('tickXPos');
+        const tickXNeg = document.getElementById('tickXNeg');
+        const tickYPos = document.getElementById('tickYPos');
+        const tickYNeg = document.getElementById('tickYNeg');
+
+        // Scale offsets based on canvas size
+        const scale = CANVAS_SIZE / 600;
+
+        // X-axis ticks (at ±SCALE from center, slightly above center line)
+        tickXPos.style.left = (CENTER + SCALE + 15 * scale) + 'px';
+        tickXPos.style.top = (CENTER - 18 * scale) + 'px';
+        tickXPos.style.transform = 'translateY(-50%)';
+
+        tickXNeg.style.left = (CENTER - SCALE - 30 * scale) + 'px';
+        tickXNeg.style.top = (CENTER - 18 * scale) + 'px';
+        tickXNeg.style.transform = 'translateY(-50%)';
+
+        // Y-axis ticks (at ±SCALE from center)
+        tickYPos.style.left = (CENTER - 10 * scale) + 'px';
+        tickYPos.style.top = (CENTER - SCALE - 28 * scale) + 'px';
+        tickYPos.style.transform = 'translateX(-100%)';
+
+        tickYNeg.style.left = (CENTER - 10 * scale) + 'px';
+        tickYNeg.style.top = (CENTER + SCALE + 8 * scale) + 'px';
+        tickYNeg.style.transform = 'translateX(-100%)';
+    }
+
+    // ========================================
     // INITIALIZATION
     // ========================================
-    
+
     const audioButton = document.getElementById('audioButton');
     const audioIcon = document.getElementById('audioIcon');
     audioButton.addEventListener('click', function() {
@@ -589,7 +767,11 @@ MathJax = {
             audioButton.style.background = '#2563eb';
         }
     });
-    
+
+    // Initialize canvas size and handle window resize
+    updateCanvasSize();
+    window.addEventListener('resize', updateCanvasSize);
+
     // Start animation
     animate();
 })();
