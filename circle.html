@@ -36,7 +36,7 @@ MathJax = {
     const CONFIG = {
         // Layout
         baseSize: 600,              // Reference size for scaling
-        scaleRatio: 0.3,            // Scale as fraction of canvas size
+        scaleRatio: 0.18,           // Scale as fraction of canvas size (smaller to leave room for sine waves)
         axisMargin: 50,             // Margin from edge to axis endpoints
         tickLength: 5,              // Half-length of tick marks
         pointRadius: 6,             // Current point radius
@@ -120,6 +120,19 @@ MathJax = {
             buttonInactive: '#2563eb'
         },
 
+        // Square and sine wave emanation
+        square: {
+            color: '#d1d5db',
+            lineWidth: 1
+        },
+        sineWave: {
+            spreadSpeed: 0.6,         // How fast the wave spreads outward (pixels per frame at base size)
+            maxSpread: 180,           // Maximum distance from edge (pixels at base size) - full wave visible
+            fadeFrames: 60,           // Frames to fade out after cycle ends
+            color: '#9ca3af',
+            lineWidth: 1.5
+        },
+
         // Music theory
         music: {
             c6Frequency: 1046.50,
@@ -134,15 +147,26 @@ MathJax = {
     // FUNCTION CYCLES
     // ========================================
 
+    // Precomputed t-values where functions equal -1, 0, or 1 (within sweep range -π to π)
+    // xCrossings: t values where xFunc(t) = -1, 0, 1 (for top/bottom edge points)
+    // yCrossings: t values where yFunc(t) = -1, 0, 1 (for left/right edge points)
     const FUNCTION_CYCLES = [
-        { name: "$\\left[\\sin x,\\ \\frac{d}{dx}(\\sin x)\\right]$", xLabel: "$\\sin x$", yLabel: "$\\frac{d}{dx}(\\sin x)$", xFunc: Math.sin, yFunc: Math.cos, color: '#dc2626', ascending: true },
-        { name: "$\\left[\\sin x,\\ \\int \\sin x\\, dx\\right]$", xLabel: "$\\sin x$", yLabel: "$\\int \\sin x\\, dx$", xFunc: Math.sin, yFunc: t => -Math.cos(t), color: '#ea580c', ascending: false },
-        { name: "$\\left[\\cos x,\\ \\frac{d}{dx}(\\cos x)\\right]$", xLabel: "$\\cos x$", yLabel: "$\\frac{d}{dx}(\\cos x)$", xFunc: Math.cos, yFunc: t => -Math.sin(t), color: '#ca8a04', ascending: true },
-        { name: "$\\left[\\cos x,\\ \\int \\cos x\\, dx\\right]$", xLabel: "$\\cos x$", yLabel: "$\\int \\cos x\\, dx$", xFunc: Math.cos, yFunc: Math.sin, color: '#059669', ascending: false },
-        { name: "$\\left[-\\sin x,\\ \\frac{d}{dx}(-\\sin x)\\right]$", xLabel: "$-\\sin x$", yLabel: "$\\frac{d}{dx}(-\\sin x)$", xFunc: t => -Math.sin(t), yFunc: t => -Math.cos(t), color: '#2563eb', ascending: true },
-        { name: "$\\left[-\\sin x,\\ \\int -\\sin x\\, dx\\right]$", xLabel: "$-\\sin x$", yLabel: "$\\int -\\sin x\\, dx$", xFunc: t => -Math.sin(t), yFunc: Math.cos, color: '#4f46e5', ascending: false },
-        { name: "$\\left[-\\cos x,\\ \\frac{d}{dx}(-\\cos x)\\right]$", xLabel: "$-\\cos x$", yLabel: "$\\frac{d}{dx}(-\\cos x)$", xFunc: t => -Math.cos(t), yFunc: Math.sin, color: '#7c3aed', ascending: true },
-        { name: "$\\left[-\\cos x,\\ \\int -\\cos x\\, dx\\right]$", xLabel: "$-\\cos x$", yLabel: "$\\int -\\cos x\\, dx$", xFunc: t => -Math.cos(t), yFunc: t => -Math.sin(t), color: '#000000', ascending: false }
+        { name: "$\\left[\\sin x,\\ \\frac{d}{dx}(\\sin x)\\right]$", xLabel: "$\\sin x$", yLabel: "$\\frac{d}{dx}(\\sin x)$", xFunc: Math.sin, yFunc: Math.cos, color: '#dc2626', ascending: true,
+          xCrossings: [-Math.PI/2, 0, Math.PI/2], yCrossings: [-Math.PI, -Math.PI/2, 0, Math.PI/2, Math.PI] },
+        { name: "$\\left[\\sin x,\\ \\int \\sin x\\, dx\\right]$", xLabel: "$\\sin x$", yLabel: "$\\int \\sin x\\, dx$", xFunc: Math.sin, yFunc: t => -Math.cos(t), color: '#ea580c', ascending: false,
+          xCrossings: [-Math.PI/2, 0, Math.PI/2], yCrossings: [-Math.PI, -Math.PI/2, 0, Math.PI/2, Math.PI] },
+        { name: "$\\left[\\cos x,\\ \\frac{d}{dx}(\\cos x)\\right]$", xLabel: "$\\cos x$", yLabel: "$\\frac{d}{dx}(\\cos x)$", xFunc: Math.cos, yFunc: t => -Math.sin(t), color: '#ca8a04', ascending: true,
+          xCrossings: [-Math.PI, -Math.PI/2, 0, Math.PI/2, Math.PI], yCrossings: [-Math.PI/2, 0, Math.PI/2] },
+        { name: "$\\left[\\cos x,\\ \\int \\cos x\\, dx\\right]$", xLabel: "$\\cos x$", yLabel: "$\\int \\cos x\\, dx$", xFunc: Math.cos, yFunc: Math.sin, color: '#059669', ascending: false,
+          xCrossings: [-Math.PI, -Math.PI/2, 0, Math.PI/2, Math.PI], yCrossings: [-Math.PI/2, 0, Math.PI/2] },
+        { name: "$\\left[-\\sin x,\\ \\frac{d}{dx}(-\\sin x)\\right]$", xLabel: "$-\\sin x$", yLabel: "$\\frac{d}{dx}(-\\sin x)$", xFunc: t => -Math.sin(t), yFunc: t => -Math.cos(t), color: '#2563eb', ascending: true,
+          xCrossings: [-Math.PI/2, 0, Math.PI/2], yCrossings: [-Math.PI, -Math.PI/2, 0, Math.PI/2, Math.PI] },
+        { name: "$\\left[-\\sin x,\\ \\int -\\sin x\\, dx\\right]$", xLabel: "$-\\sin x$", yLabel: "$\\int -\\sin x\\, dx$", xFunc: t => -Math.sin(t), yFunc: Math.cos, color: '#4f46e5', ascending: false,
+          xCrossings: [-Math.PI/2, 0, Math.PI/2], yCrossings: [-Math.PI, -Math.PI/2, 0, Math.PI/2, Math.PI] },
+        { name: "$\\left[-\\cos x,\\ \\frac{d}{dx}(-\\cos x)\\right]$", xLabel: "$-\\cos x$", yLabel: "$\\frac{d}{dx}(-\\cos x)$", xFunc: t => -Math.cos(t), yFunc: Math.sin, color: '#7c3aed', ascending: true,
+          xCrossings: [-Math.PI, -Math.PI/2, 0, Math.PI/2, Math.PI], yCrossings: [-Math.PI/2, 0, Math.PI/2] },
+        { name: "$\\left[-\\cos x,\\ \\int -\\cos x\\, dx\\right]$", xLabel: "$-\\cos x$", yLabel: "$\\int -\\cos x\\, dx$", xFunc: t => -Math.cos(t), yFunc: t => -Math.sin(t), color: '#000000', ascending: false,
+          xCrossings: [-Math.PI, -Math.PI/2, 0, Math.PI/2, Math.PI], yCrossings: [-Math.PI/2, 0, Math.PI/2] }
     ];
 
     // ========================================
@@ -210,8 +234,27 @@ MathJax = {
         finalNotePlayed: false,
         padStarted: false,
         pops: [],
-        lastLabelCycleIndex: -1
+        lastLabelCycleIndex: -1,
+        // Sine wave emanation state
+        sineWaveHistory: [],        // Array of {x, y} points for current cycle
+        fadingSineWaves: []         // Array of {points: [], color: '', age: 0, edges: []} for fading waves
     };
+
+    // ========================================
+    // EDGE PATTERN FOR SINE WAVES
+    // ========================================
+
+    const EDGE_PATTERNS = [
+        ['top', 'right'],     // Cycles 0-1
+        ['bottom', 'right'],  // Cycles 2-3
+        ['top', 'left'],      // Cycles 4-5
+        ['bottom', 'left']    // Cycles 6-7
+    ];
+
+    function getActiveEdges(cycleIndex) {
+        const pattern = Math.floor(cycleIndex / 2) % 4;
+        return EDGE_PATTERNS[pattern];
+    }
 
     // ========================================
     // MUSIC THEORY (Pure functions)
@@ -420,6 +463,149 @@ MathJax = {
             ctx.fillRect(0, 0, dimensions.canvasSize, dimensions.canvasSize);
         },
 
+        drawSquare() {
+            const { center, scale } = dimensions;
+            ctx.strokeStyle = CONFIG.square.color;
+            ctx.lineWidth = CONFIG.square.lineWidth;
+
+            ctx.beginPath();
+            ctx.rect(center - scale, center - scale, scale * 2, scale * 2);
+            ctx.stroke();
+        },
+
+        drawEdgeProjections(x, y, edges) {
+            const { center, scale } = dimensions;
+            ctx.strokeStyle = CONFIG.square.color;
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+
+            edges.forEach(edge => {
+                ctx.beginPath();
+                if (edge === 'top') {
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(x, center - scale);
+                } else if (edge === 'bottom') {
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(x, center + scale);
+                } else if (edge === 'left') {
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(center - scale, y);
+                } else if (edge === 'right') {
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(center + scale, y);
+                }
+                ctx.stroke();
+            });
+
+            ctx.setLineDash([]);
+        },
+
+        drawSineWaves(history, edges, cycleIndex, currentT, alpha = 1) {
+            if (history.length < 2) return;
+
+            const { center, scale } = dimensions;
+            const scaleFactor = dimensions.getScaleFactor();
+            const maxSpread = CONFIG.sineWave.maxSpread * scaleFactor;
+            const spreadSpeed = CONFIG.sineWave.spreadSpeed * scaleFactor;
+            const cycle = FUNCTION_CYCLES[cycleIndex];
+
+            ctx.strokeStyle = cycle.color;
+            ctx.lineWidth = CONFIG.visual.circleLineWidth;
+            ctx.globalAlpha = alpha;
+
+            edges.forEach(edge => {
+                ctx.beginPath();
+                let first = true;
+
+                history.forEach((point, i) => {
+                    const age = history.length - 1 - i;
+                    const spread = Math.min(age * spreadSpeed, maxSpread);
+
+                    let drawX, drawY;
+                    if (edge === 'top') {
+                        drawX = point.x;
+                        drawY = (center - scale) - spread;
+                    } else if (edge === 'bottom') {
+                        drawX = point.x;
+                        drawY = (center + scale) + spread;
+                    } else if (edge === 'left') {
+                        drawX = (center - scale) - spread;
+                        drawY = point.y;
+                    } else if (edge === 'right') {
+                        drawX = (center + scale) + spread;
+                        drawY = point.y;
+                    }
+
+                    if (first) {
+                        ctx.moveTo(drawX, drawY);
+                        first = false;
+                    } else {
+                        ctx.lineTo(drawX, drawY);
+                    }
+                });
+
+                ctx.stroke();
+
+                // Draw crossing points from precomputed t-values
+                // For top/bottom edges, use xCrossings; for left/right, use yCrossings
+                const crossingTs = (edge === 'top' || edge === 'bottom')
+                    ? cycle.xCrossings
+                    : cycle.yCrossings;
+
+                crossingTs.forEach(crossingT => {
+                    // Only draw if we've passed this t value
+                    if (crossingT < -Math.PI || crossingT > currentT) return;
+
+                    // Calculate what fraction through the sweep this crossing occurs
+                    const crossingProgress = (crossingT + Math.PI) / (2 * Math.PI);
+                    // Calculate what fraction through the sweep we currently are
+                    const currentProgress = (currentT + Math.PI) / (2 * Math.PI);
+
+                    // The crossing was recorded when progress matched crossingProgress
+                    // History index = crossingProgress / currentProgress * history.length
+                    const historyIndex = Math.floor((crossingProgress / currentProgress) * (history.length - 1));
+                    if (historyIndex < 0 || historyIndex >= history.length) return;
+
+                    const age = history.length - 1 - historyIndex;
+                    const spread = Math.min(age * spreadSpeed, maxSpread);
+
+                    // Get exact position from function
+                    const exactX = center + cycle.xFunc(crossingT) * scale;
+                    const exactY = center - cycle.yFunc(crossingT) * scale;
+
+                    let drawX, drawY;
+                    if (edge === 'top') {
+                        drawX = exactX;
+                        drawY = (center - scale) - spread;
+                    } else if (edge === 'bottom') {
+                        drawX = exactX;
+                        drawY = (center + scale) + spread;
+                    } else if (edge === 'left') {
+                        drawX = (center - scale) - spread;
+                        drawY = exactY;
+                    } else if (edge === 'right') {
+                        drawX = (center + scale) + spread;
+                        drawY = exactY;
+                    }
+
+                    // Draw the point
+                    ctx.fillStyle = cycle.color;
+                    ctx.beginPath();
+                    ctx.arc(drawX, drawY, CONFIG.pointRadius, 0, 2 * Math.PI);
+                    ctx.fill();
+
+                    ctx.strokeStyle = 'white';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    ctx.strokeStyle = cycle.color;
+                    ctx.lineWidth = CONFIG.visual.circleLineWidth;
+                });
+            });
+
+            ctx.globalAlpha = 1;
+        },
+
         drawAxes() {
             const { center, canvasSize } = dimensions;
             const margin = CONFIG.axisMargin * dimensions.getScaleFactor();
@@ -575,11 +761,16 @@ MathJax = {
 
         drawPops(pops) {
             const { visual } = CONFIG;
-            const updated = [];
 
-            pops.forEach(pop => {
+            // Mutate in place for performance (avoid allocations every frame)
+            for (let i = pops.length - 1; i >= 0; i--) {
+                const pop = pops[i];
                 pop.age++;
-                if (pop.age > visual.popMaxAge) return;
+
+                if (pop.age > visual.popMaxAge) {
+                    pops.splice(i, 1);
+                    continue;
+                }
 
                 const progress = pop.age / visual.popMaxAge;
                 const size = visual.popStartSize + (visual.popEndSize - visual.popStartSize) * progress;
@@ -589,22 +780,44 @@ MathJax = {
                 ctx.beginPath();
                 ctx.arc(pop.x, pop.y, size, 0, 2 * Math.PI);
                 ctx.fill();
-
-                updated.push(pop);
-            });
+            }
 
             ctx.globalAlpha = 1;
-            return updated;
         },
 
-        render(cycleIndex, parameterT, pops) {
+        render(cycleIndex, parameterT, pops, sineWaveHistory, fadingSineWaves) {
             const cycle = FUNCTION_CYCLES[cycleIndex];
+            const edges = getActiveEdges(cycleIndex);
+            const { center, scale } = dimensions;
+
+            // Calculate current point position
+            const xVal = cycle.xFunc(parameterT);
+            const yVal = cycle.yFunc(parameterT);
+            const x = center + xVal * scale;
+            const y = center - yVal * scale;
 
             this.clear();
+            this.drawSquare();
             this.drawAxes();
+
+            // Draw fading sine waves from previous cycles
+            fadingSineWaves.forEach(wave => {
+                const alpha = 1 - (wave.age / CONFIG.sineWave.fadeFrames);
+                if (alpha > 0) {
+                    // For fading waves, use Math.PI as currentT since they completed
+                    this.drawSineWaves(wave.points, wave.edges, wave.cycleIndex, Math.PI, alpha);
+                }
+            });
+
+            // Draw current sine waves
+            this.drawSineWaves(sineWaveHistory, edges, cycleIndex, parameterT);
+
+            // Draw edge projections
+            this.drawEdgeProjections(x, y, edges);
+
             this.drawCircle(cycle, parameterT);
             this.drawCurrentPoint(cycle, parameterT);
-            return this.drawPops(pops);
+            this.drawPops(pops);
         }
     };
 
@@ -725,6 +938,19 @@ MathJax = {
         },
 
         resetForNextCycle() {
+            // Move current sine wave to fading waves before reset
+            if (state.sineWaveHistory.length > 0) {
+                const cycle = FUNCTION_CYCLES[state.cycleIndex];
+                state.fadingSineWaves.push({
+                    points: state.sineWaveHistory.slice(),
+                    color: cycle.color,
+                    edges: getActiveEdges(state.cycleIndex),
+                    cycleIndex: state.cycleIndex,  // Need this for crossing calculation
+                    age: 0
+                });
+            }
+            state.sineWaveHistory = [];
+
             state.sweepProgress = 0;
             state.startPauseCounter = CONFIG.timing.startPauseFrames;
             state.parameterT = -Math.PI;
@@ -775,11 +1001,35 @@ MathJax = {
             } else {
                 state.parameterT = -Math.PI + state.sweepProgress * 2 * Math.PI;
             }
+
+            // Record current point position for sine wave history
+            const { center, scale } = dimensions;
+            const xVal = cycle.xFunc(state.parameterT);
+            const yVal = cycle.yFunc(state.parameterT);
+            state.sineWaveHistory.push({
+                x: center + xVal * scale,
+                y: center - yVal * scale
+            });
         },
 
         animate() {
             this.tick();
-            state.pops = renderer.render(state.cycleIndex, state.parameterT, state.pops);
+
+            // Age fading sine waves and remove expired ones
+            for (let i = state.fadingSineWaves.length - 1; i >= 0; i--) {
+                state.fadingSineWaves[i].age++;
+                if (state.fadingSineWaves[i].age >= CONFIG.sineWave.fadeFrames) {
+                    state.fadingSineWaves.splice(i, 1);
+                }
+            }
+
+            renderer.render(
+                state.cycleIndex,
+                state.parameterT,
+                state.pops,
+                state.sineWaveHistory,
+                state.fadingSineWaves
+            );
 
             // Update labels when cycle changes
             if (state.lastLabelCycleIndex !== state.cycleIndex) {
