@@ -1,0 +1,597 @@
+<script>
+MathJax = {
+  tex: {
+    inlineMath: [['$', '$'], ['\\(', '\\)']],
+    processEscapes: true
+  }
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+
+<div style="max-width: 700px; margin: 2rem auto; padding: 1.5rem; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+    <div id="canvasContainer" style="position: relative; width: 600px; margin: 0 auto;">
+        <canvas id="parametricCircle" width="600" height="600" style="display: block; border: 1px solid #e0e0e0; border-radius: 4px;"></canvas>
+        <!-- X axis label (right side) -->
+        <div id="xAxisLabel" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 1.65rem; color: #6b7280; line-height: 1.4;"></div>
+        <!-- Y axis label (top) -->
+        <div id="yAxisLabel" style="position: absolute; top: 8px; left: 50%; transform: translateX(-50%); font-size: 1.65rem; color: #6b7280; line-height: 1.4;"></div>
+        <!-- Tick labels using MathJax -->
+        <div id="tickXPos" style="position: absolute; top: calc(50% - 18px); left: calc(50% + 180px + 15px); transform: translateY(-50%); font-size: 1.35rem; color: #6b7280;">$1$</div>
+        <div id="tickXNeg" style="position: absolute; top: calc(50% - 18px); left: calc(50% - 180px - 30px); transform: translateY(-50%); font-size: 1.35rem; color: #6b7280;">$-1$</div>
+        <div id="tickYPos" style="position: absolute; top: calc(50% - 180px - 28px); left: 50%; transform: translateX(-100%); margin-left: -10px; font-size: 1.35rem; color: #6b7280;">$1$</div>
+        <div id="tickYNeg" style="position: absolute; top: calc(50% + 180px + 8px); left: 50%; transform: translateX(-100%); margin-left: -10px; font-size: 1.35rem; color: #6b7280;">$-1$</div>
+    </div>
+    <div id="functionLabel" style="text-align: center; margin-top: 1rem; font-size: 1.5rem; font-weight: 500; color: #333; font-family: inherit; line-height: 2;"></div>
+    <button id="audioButton" style="display: block; margin: 1rem auto; padding: 0.75rem 1.5rem; font-size: 1rem; font-family: inherit; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"><span id="audioIcon">&#x1F507;</span> Play circle of fifths music</button>
+</div>
+
+<script>
+(function() {
+    'use strict';
+    
+    // ========================================
+    // CONSTANTS AND CONFIGURATION
+    // ========================================
+    
+    const CANVAS_SIZE = 600;
+    const SCALE = 180; // pixels per unit
+    const CENTER = CANVAS_SIZE / 2;
+    
+    const TIMING = {
+        sweepSpeed: 0.0032175,      // Progress per frame (~5 seconds)
+        startPauseFrames: 30,        // Pause before sweep starts
+        completionPauseFrames: 30,   // Pause after sweep completes
+        earlyTriggerOffset: 0.03,    // Trigger notes 3% early
+        finalNoteProgress: 0.97      // When to play final note
+    };
+    
+    const AUDIO = {
+        scheduleAheadTime: 0.1,      // Schedule audio 100ms early
+        reverbDuration: 6,           // Reverb tail in seconds
+        wetDryMix: { dry: 0.3, wet: 0.7 },
+        masterGain: 0.25,
+        bellDuration: 1.5,
+        harmonics: [
+            { freq: 1.0, gain: 0.5 },
+            { freq: 2.76, gain: 0.3 },
+            { freq: 5.4, gain: 0.15 },
+            { freq: 8.93, gain: 0.08 }
+        ]
+    };
+    
+    const VISUAL = {
+        popMaxAge: 30,               // Frames for pop animation
+        popStartSize: 5,             // Starting radius in pixels
+        popEndSize: 30,              // Ending radius in pixels
+        circleLineWidth: 3,
+        sweepLineAlpha: 0.3,
+        ghostCircleAlpha: 0.1,
+        radiusLineAlpha: 0.6
+    };
+    
+    // Function definitions for the 8 cycles
+    // LaTeX names for MathJax rendering; xLabel/yLabel for axis labels
+    const FUNCTION_CYCLES = [
+        { name: "$\\left[\\sin x,\\ \\frac{d}{dx}(\\sin x)\\right]$", xLabel: "$\\sin x$", yLabel: "$\\frac{d}{dx}(\\sin x)$", xFunc: Math.sin, yFunc: Math.cos, color: '#dc2626', ascending: true },
+        { name: "$\\left[\\sin x,\\ \\int \\sin x\\, dx\\right]$", xLabel: "$\\sin x$", yLabel: "$\\int \\sin x\\, dx$", xFunc: Math.sin, yFunc: t => -Math.cos(t), color: '#ea580c', ascending: false },
+        { name: "$\\left[\\cos x,\\ \\frac{d}{dx}(\\cos x)\\right]$", xLabel: "$\\cos x$", yLabel: "$\\frac{d}{dx}(\\cos x)$", xFunc: Math.cos, yFunc: t => -Math.sin(t), color: '#ca8a04', ascending: true },
+        { name: "$\\left[\\cos x,\\ \\int \\cos x\\, dx\\right]$", xLabel: "$\\cos x$", yLabel: "$\\int \\cos x\\, dx$", xFunc: Math.cos, yFunc: Math.sin, color: '#059669', ascending: false },
+        { name: "$\\left[-\\sin x,\\ \\frac{d}{dx}(-\\sin x)\\right]$", xLabel: "$-\\sin x$", yLabel: "$\\frac{d}{dx}(-\\sin x)$", xFunc: t => -Math.sin(t), yFunc: t => -Math.cos(t), color: '#2563eb', ascending: true },
+        { name: "$\\left[-\\sin x,\\ \\int -\\sin x\\, dx\\right]$", xLabel: "$-\\sin x$", yLabel: "$\\int -\\sin x\\, dx$", xFunc: t => -Math.sin(t), yFunc: Math.cos, color: '#4f46e5', ascending: false },
+        { name: "$\\left[-\\cos x,\\ \\frac{d}{dx}(-\\cos x)\\right]$", xLabel: "$-\\cos x$", yLabel: "$\\frac{d}{dx}(-\\cos x)$", xFunc: t => -Math.cos(t), yFunc: Math.sin, color: '#7c3aed', ascending: true },
+        { name: "$\\left[-\\cos x,\\ \\int -\\cos x\\, dx\\right]$", xLabel: "$-\\cos x$", yLabel: "$\\int -\\cos x\\, dx$", xFunc: t => -Math.cos(t), yFunc: t => -Math.sin(t), color: '#000000', ascending: false }
+    ];
+    
+    // ========================================
+    // MUSICAL CALCULATIONS
+    // ========================================
+    
+    function generateCircleOfFifths() {
+        const notes = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+        const circle = [];
+        let currentIndex = 0; // Start at C
+        
+        for (let i = 0; i < 12; i++) {
+            circle.push(notes[currentIndex]);
+            currentIndex = (currentIndex + 7) % 12; // Perfect fifth is 7 semitones
+        }
+        
+        return circle;
+    }
+    
+    function generateKeyFrequencies(circleOfFifths) {
+        const C6_FREQUENCY = 1046.50; // C6 as base
+        const SEMITONE_RATIO = Math.pow(2, 1/12);
+        
+        const noteToSemitone = {
+            'C': 0, 'C#': 1, 'D': 2, 'Eb': 3, 'E': 4, 'F': 5,
+            'F#': 6, 'G': 7, 'Ab': 8, 'A': 9, 'Bb': 10, 'B': 11
+        };
+        
+        const frequencies = {};
+        
+        circleOfFifths.forEach(key => {
+            const rootSemitone = noteToSemitone[key];
+            
+            // Choose root note octave (using C6 as reference, adjust to reasonable range)
+            const rootFreq = C6_FREQUENCY * Math.pow(SEMITONE_RATIO, rootSemitone);
+            
+            // Build ascending arpeggio from root: 1, 3, 5, 8
+            // Intervals: root (+0), major 3rd (+4), perfect 5th (+7), octave (+12)
+            const intervals = [0, 4, 7, 12];
+            frequencies[key] = intervals.map(interval => 
+                rootFreq * Math.pow(SEMITONE_RATIO, interval)
+            );
+        });
+        
+        return frequencies;
+    }
+    
+    const CIRCLE_OF_FIFTHS = generateCircleOfFifths();
+    const KEY_FREQUENCIES = generateKeyFrequencies(CIRCLE_OF_FIFTHS);
+    
+    // ========================================
+    // STATE MANAGEMENT
+    // ========================================
+    
+    const state = {
+        // Animation state
+        sweepProgress: 0,           // 0 to 1
+        parameterT: -Math.PI,       // Current parameter value
+        cycleIndex: 0,              // Which function we're on (0-7)
+        startPauseCounter: TIMING.startPauseFrames,
+        completionPauseCounter: 0,
+        
+        // Musical state
+        fifthsIndex: 0,             // Position in circle of fifths
+        noteIndex: 0,               // Which note in arpeggio (0-3)
+        lastProgressQuarter: -1,    // Track which quarter we're in
+        finalNotePlayed: false,     // Flag for final note
+        
+        // Visual state
+        visualPops: []              // Array of {x, y, age, color}
+    };
+    
+    // ========================================
+    // AUDIO SYSTEM
+    // ========================================
+    
+    const audio = {
+        context: null,
+        enabled: false,
+        masterGain: null,
+        convolver: null,
+        dryGain: null,
+        wetGain: null,
+        
+        initialize() {
+            this.context = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // Create audio graph
+            this.masterGain = this.context.createGain();
+            this.masterGain.gain.value = AUDIO.masterGain;
+            
+            // Create reverb
+            this.convolver = this.createReverb();
+            
+            // Wet/dry mix
+            this.dryGain = this.context.createGain();
+            this.wetGain = this.context.createGain();
+            this.dryGain.gain.value = AUDIO.wetDryMix.dry;
+            this.wetGain.gain.value = AUDIO.wetDryMix.wet;
+            
+            // Connect graph: master -> [dry, wet(reverb)] -> destination
+            this.masterGain.connect(this.dryGain);
+            this.masterGain.connect(this.convolver);
+            this.convolver.connect(this.wetGain);
+            this.dryGain.connect(this.context.destination);
+            this.wetGain.connect(this.context.destination);
+        },
+        
+        createReverb() {
+            const convolver = this.context.createConvolver();
+            const duration = AUDIO.reverbDuration;
+            const sampleRate = this.context.sampleRate;
+            const length = sampleRate * duration;
+            const buffer = this.context.createBuffer(2, length, sampleRate);
+            
+            // Generate reverb impulse response
+            for (let channel = 0; channel < 2; channel++) {
+                const channelData = buffer.getChannelData(channel);
+                for (let i = 0; i < length; i++) {
+                    const decay = Math.pow(1 - i / length, 1.5);
+                    channelData[i] = (Math.random() * 2 - 1) * decay;
+                }
+            }
+            
+            convolver.buffer = buffer;
+            return convolver;
+        },
+        
+        playBellTone(frequency) {
+            if (!this.enabled || !this.context) return;
+            
+            const now = this.context.currentTime;
+            const start = now + AUDIO.scheduleAheadTime;
+            const duration = AUDIO.bellDuration;
+            
+            AUDIO.harmonics.forEach(harmonic => {
+                const osc = this.context.createOscillator();
+                const gain = this.context.createGain();
+                
+                osc.frequency.value = frequency * harmonic.freq;
+                osc.type = 'sine';
+                
+                gain.gain.setValueAtTime(harmonic.gain, start);
+                gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
+                
+                osc.connect(gain);
+                gain.connect(this.masterGain);
+                
+                osc.start(start);
+                osc.stop(start + duration);
+            });
+        }
+    };
+    
+    // ========================================
+    // MUSICAL LOGIC
+    // ========================================
+    
+    const music = {
+        getCurrentKey() {
+            return CIRCLE_OF_FIFTHS[state.fifthsIndex % 12];
+        },
+        
+        getCurrentCycle() {
+            return FUNCTION_CYCLES[state.cycleIndex];
+        },
+        
+        getNoteFrequency() {
+            const key = this.getCurrentKey();
+            const frequencies = KEY_FREQUENCIES[key];
+            const cycle = this.getCurrentCycle();
+            
+            // Ascending: 1-3-5-8, Descending: 8-5-3-1
+            const index = cycle.ascending ? state.noteIndex : (3 - state.noteIndex);
+            return frequencies[index];
+        },
+        
+        getAxisCrossingPosition(noteIndex) {
+            // Calculate position at actual axis crossing (25%, 50%, 75%, 100%)
+            const targetProgress = (noteIndex + 1) * 0.25;
+            return -Math.PI + targetProgress * 2 * Math.PI;
+        },
+        
+        playNoteAtCrossing() {
+            const frequency = this.getNoteFrequency();
+            audio.playBellTone(frequency);
+            
+            // Create visual pop at axis crossing
+            const targetT = this.getAxisCrossingPosition(state.noteIndex);
+            const cycle = this.getCurrentCycle();
+            const xVal = cycle.xFunc(targetT);
+            const yVal = cycle.yFunc(targetT);
+            
+            state.visualPops.push({
+                x: CENTER + xVal * SCALE,
+                y: CENTER - yVal * SCALE,
+                age: 0,
+                color: cycle.color
+            });
+            
+            state.noteIndex++;
+        },
+        
+        checkAndPlayNotes() {
+            if (!audio.enabled) return;
+            
+            // Check for notes at 25%, 50%, 75% (triggered slightly early)
+            const adjustedProgress = state.sweepProgress + TIMING.earlyTriggerOffset;
+            const currentQuarter = Math.floor(adjustedProgress * 4);
+            
+            if (currentQuarter !== state.lastProgressQuarter && currentQuarter >= 1 && currentQuarter <= 3) {
+                this.playNoteAtCrossing();
+                state.lastProgressQuarter = currentQuarter;
+            }
+            
+            // Final note at 97%
+            if (state.sweepProgress >= TIMING.finalNoteProgress && !state.finalNotePlayed) {
+                this.playNoteAtCrossing();
+                state.finalNotePlayed = true;
+            }
+        }
+    };
+    
+    // ========================================
+    // RENDERING
+    // ========================================
+    
+    const canvas = document.getElementById('parametricCircle');
+    const ctx = canvas.getContext('2d');
+    
+    const renderer = {
+        drawAxes() {
+            ctx.strokeStyle = '#d1d5db';
+            ctx.lineWidth = 1;
+            
+            // X axis
+            ctx.beginPath();
+            ctx.moveTo(50, CENTER);
+            ctx.lineTo(CANVAS_SIZE - 50, CENTER);
+            ctx.stroke();
+            
+            // Y axis
+            ctx.beginPath();
+            ctx.moveTo(CENTER, 50);
+            ctx.lineTo(CENTER, CANVAS_SIZE - 50);
+            ctx.stroke();
+            
+            // Tick marks and labels
+            this.drawTickMarks();
+        },
+        
+        drawTickMarks() {
+            ctx.strokeStyle = '#d1d5db';
+            ctx.lineWidth = 1;
+
+            for (let i = -1; i <= 1; i++) {
+                if (i === 0) continue;
+
+                const x = CENTER + i * SCALE;
+                const y = CENTER - i * SCALE;
+
+                // X axis tick marks only (labels are HTML overlays)
+                ctx.beginPath();
+                ctx.moveTo(x, CENTER - 5);
+                ctx.lineTo(x, CENTER + 5);
+                ctx.stroke();
+
+                // Y axis tick marks only (labels are HTML overlays)
+                ctx.beginPath();
+                ctx.moveTo(CENTER - 5, y);
+                ctx.lineTo(CENTER + 5, y);
+                ctx.stroke();
+            }
+        },
+        
+        
+        drawCircle(cycle, currentT) {
+            ctx.strokeStyle = cycle.color;
+            ctx.lineWidth = VISUAL.circleLineWidth;
+            
+            // Traced path
+            ctx.globalAlpha = VISUAL.sweepLineAlpha;
+            ctx.beginPath();
+            for (let angle = -Math.PI; angle <= currentT; angle += 0.02) {
+                const x = CENTER + cycle.xFunc(angle) * SCALE;
+                const y = CENTER - cycle.yFunc(angle) * SCALE;
+                if (angle === -Math.PI) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+            
+            // Ghost circle
+            ctx.globalAlpha = VISUAL.ghostCircleAlpha;
+            ctx.beginPath();
+            for (let angle = -Math.PI; angle <= Math.PI; angle += 0.02) {
+                const x = CENTER + cycle.xFunc(angle) * SCALE;
+                const y = CENTER - cycle.yFunc(angle) * SCALE;
+                if (angle === -Math.PI) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+        },
+        
+        drawCurrentPoint(cycle, t) {
+            const xVal = cycle.xFunc(t);
+            const yVal = cycle.yFunc(t);
+            const x = CENTER + xVal * SCALE;
+            const y = CENTER - yVal * SCALE;
+            
+            // Projection lines
+            ctx.strokeStyle = cycle.color;
+            ctx.lineWidth = 1;
+            ctx.globalAlpha = 0.4;
+            ctx.setLineDash([5, 5]);
+            
+            ctx.beginPath();
+            ctx.moveTo(CENTER, y);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.moveTo(x, CENTER);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1;
+            
+            // Projection labels
+            this.drawProjectionLabels(x, y, xVal, yVal, cycle.color);
+            
+            // Radius line
+            ctx.strokeStyle = cycle.color;
+            ctx.lineWidth = 1.5;
+            ctx.globalAlpha = VISUAL.radiusLineAlpha;
+            ctx.beginPath();
+            ctx.moveTo(CENTER, CENTER);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+            
+            // Current point
+            ctx.fillStyle = cycle.color;
+            ctx.beginPath();
+            ctx.arc(x, y, 6, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        },
+        
+        drawProjectionLabels(x, y, xVal, yVal, color) {
+            ctx.fillStyle = color;
+            ctx.font = '20px sans-serif';
+            ctx.globalAlpha = 0.6; // More translucent
+            
+            // Horizontal projection
+            ctx.textAlign = 'center';
+            const xLabelY = y > CENTER ? y + 15 : y - 8;
+            ctx.fillText(xVal.toFixed(2), (CENTER + x) / 2, xLabelY);
+            
+            // Vertical projection
+            ctx.save();
+            ctx.translate(x + (x > CENTER ? 18 : -18), (CENTER + y) / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.textAlign = 'center';
+            ctx.fillText(yVal.toFixed(2), 0, 0);
+            ctx.restore();
+            
+            ctx.globalAlpha = 1; // Reset alpha
+        },
+        
+        drawVisualPops() {
+            for (let i = state.visualPops.length - 1; i >= 0; i--) {
+                const pop = state.visualPops[i];
+                pop.age++;
+                
+                if (pop.age > VISUAL.popMaxAge) {
+                    state.visualPops.splice(i, 1);
+                    continue;
+                }
+                
+                const progress = pop.age / VISUAL.popMaxAge;
+                const size = VISUAL.popStartSize + (VISUAL.popEndSize - VISUAL.popStartSize) * progress;
+                const opacity = 1 - progress;
+                
+                ctx.globalAlpha = opacity;
+                ctx.fillStyle = pop.color;
+                ctx.beginPath();
+                ctx.arc(pop.x, pop.y, size, 0, 2 * Math.PI);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+        },
+        
+        render() {
+            const cycle = FUNCTION_CYCLES[state.cycleIndex];
+            
+            ctx.fillStyle = '#fafafa';
+            ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+            
+            this.drawAxes();
+            this.drawCircle(cycle, state.parameterT);
+            this.drawCurrentPoint(cycle, state.parameterT);
+            this.drawVisualPops();
+        }
+    };
+    
+    
+    // ========================================
+    // ANIMATION LOOP
+    // ========================================
+    
+    function updateAnimation() {
+        // Handle start pause
+        if (state.startPauseCounter > 0) {
+            state.startPauseCounter--;
+            return;
+        }
+        
+        // Handle completion pause
+        if (state.completionPauseCounter > 0) {
+            state.completionPauseCounter--;
+            if (state.completionPauseCounter === 0) {
+                resetForNextCycle();
+            }
+            return;
+        }
+        
+        // Update sweep
+        state.sweepProgress += TIMING.sweepSpeed;
+        music.checkAndPlayNotes();
+        
+        if (state.sweepProgress >= 1) {
+            state.sweepProgress = 1;
+            state.parameterT = Math.PI;
+            state.completionPauseCounter = TIMING.completionPauseFrames;
+        } else {
+            state.parameterT = -Math.PI + state.sweepProgress * 2 * Math.PI;
+        }
+    }
+    
+    function resetForNextCycle() {
+        state.sweepProgress = 0;
+        state.startPauseCounter = TIMING.startPauseFrames;
+        state.parameterT = -Math.PI;
+        state.lastProgressQuarter = -1;
+        state.noteIndex = 0;
+        state.finalNotePlayed = false;
+        
+        state.cycleIndex = (state.cycleIndex + 1) % FUNCTION_CYCLES.length;
+        
+        // Advance circle of fifths every 2 cycles
+        if (state.cycleIndex % 2 === 0) {
+            state.fifthsIndex = (state.fifthsIndex + 1) % CIRCLE_OF_FIFTHS.length;
+        }
+    }
+    
+    function animate() {
+        updateAnimation();
+        renderer.render();
+        
+        // Update all labels with MathJax when cycle changes
+        const cycle = FUNCTION_CYCLES[state.cycleIndex];
+        const labelElement = document.getElementById('functionLabel');
+        const xAxisLabel = document.getElementById('xAxisLabel');
+        const yAxisLabel = document.getElementById('yAxisLabel');
+
+        if (labelElement.dataset.cycleIndex !== String(state.cycleIndex)) {
+            // Update main function label
+            labelElement.innerHTML = cycle.name;
+            labelElement.style.color = cycle.color;
+            labelElement.dataset.cycleIndex = state.cycleIndex;
+
+            // Update axis labels
+            xAxisLabel.innerHTML = cycle.xLabel;
+            yAxisLabel.innerHTML = cycle.yLabel;
+
+            // Trigger MathJax to typeset all labels
+            if (typeof MathJax !== 'undefined' && MathJax.typeset) {
+                MathJax.typeset([labelElement, xAxisLabel, yAxisLabel]);
+            }
+        }
+        
+        requestAnimationFrame(animate);
+    }
+    
+    // ========================================
+    // INITIALIZATION
+    // ========================================
+    
+    const audioButton = document.getElementById('audioButton');
+    const audioIcon = document.getElementById('audioIcon');
+    audioButton.addEventListener('click', function() {
+        if (!audio.enabled) {
+            if (!audio.context) audio.initialize();
+            audio.enabled = true;
+            audioIcon.innerHTML = '&#x1F50A;';
+            audioButton.childNodes[1].textContent = ' Music playing';
+            audioButton.style.background = '#059669';
+        } else {
+            audio.enabled = false;
+            audioIcon.innerHTML = '&#x1F507;';
+            audioButton.childNodes[1].textContent = ' Play circle of fifths music';
+            audioButton.style.background = '#2563eb';
+        }
+    });
+    
+    // Start animation
+    animate();
+})();
+</script>
+
